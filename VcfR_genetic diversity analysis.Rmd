@@ -1,0 +1,756 @@
+---
+title: "Heterozygosity in halleri"
+author: "Gwonjin Lee"
+date: "29 Juni 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Basic population genetics 
+```{r, echo=FALSE, warning=FALSE}
+setwd("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/Sequential growth test_Hydroponics/Statistical analysis/Heterozygosity")
+
+#install.packages("adegenet") 
+
+library(adegenet)
+
+Soildata <- read.delim("Stein_S2_phenotypes.txt")
+
+Siteinfo <- read.delim("SiteInfo_allsamples.txt")
+
+ColorPCs <- read.delim("ColorPCs.txt")
+
+Sitename <- read.delim("Sitename with individuals.txt")
+
+
+### VcfR ##############
+
+install.packages("vcfR")
+#install.packages("adegraphics")
+#install.packages("pegas")
+#install.packages("StAMPP")
+#install.packages("lattice")
+#install.packages("ape")
+
+library(vcfR)
+library(adegenet)
+library(adegraphics)
+library(pegas)
+library(StAMPP)
+library(lattice)
+library(gplots)
+library(ape)
+library(ggmap) 
+
+vcf <- read.vcfR("Ahal_postFinalFilter_Imputed_BadSampsRemoved_15%_LinkimputeR.vcf")
+
+#Then plot important statistics summed over entire VCF
+chrom <- create.chromR(name='RAD_data', vcf=vcf)
+plot(chrom) # plot the data 
+
+#Convert the data into adegenet-native format called genlight.  
+### convert to genlight
+aa.genlight <- vcfR2genlight(vcf, n.cores=1)
+locNames(aa.genlight) <- paste(vcf@fix[,1],vcf@fix[,2],sep="_") # add real SNP.names
+pop(aa.genlight)<-substr(indNames(aa.genlight),1,4) # add pop names: here "population" (group) names are first 3 chars of ind name 
+
+# check the genlight
+aa.genlight # check the basic info on the genlight object
+#indNames(aa.genlight) # check individual names
+#as.matrix(aa.genlight)[1:16,1:10] # see tiny bit of the data
+#pop(aa.genlight) # population assignment
+# look at the total data matrix (0,1,2; white = missing data)
+#glPlot (aa.genlight) # takes some time 
+
+
+### Calculate Nei's distances between individuals/pops
+aa.D.ind <- stamppNeisD(aa.genlight, pop = FALSE) # Nei's 1972 distance between indivs
+
+aa.D.pop <- stamppNeisD(aa.genlight, pop = TRUE) # Nei's 1972 distance between pops
+
+### Calculate pairwise Fst among populations
+aa.genlight@ploidy <- as.integer(ploidy(aa.genlight))
+aa.fst<-stamppFst(aa.genlight, nboots = 1, percent =95, nclusters=4)
+#modify the matrix for opening in SplitsTree
+aa.fst.sym <- aa.fst
+aa.fst.sym[upper.tri(aa.fst.sym)] <- t(aa.fst.sym)[upper.tri(aa.fst.sym)]
+# add upper triangle
+aa.fst.sym[is.na(aa.fst.sym)] <- 0
+#replace NAs with zero
+stamppPhylip(aa.fst.sym, file="ALL_aa.pops_pairwise_Fst.phy.dst") #export matrix - for SplitsTree 
+
+
+
+#ow let's work with the real 64 populations, coded by the AAXXX codes. The five geographical groups will serve as grouping variables in hierarchical AMOVA. First define a new genlight with different population definition plus define the grouping variable:
+
+#### DEFINE the 64 original populations using the AAXXX codes
+aa.genlight2 <- aa.genlight
+pop(aa.genlight2)<-substr(indNames(aa.genlight2),5,9) # define populations as the AAXXX codes 
+
+#Then calculate interpopulation distances using this new population definition, and modify these distance matrices into a "dist" object, used in the analyses below 
+aa.D.pop2 <- stamppNeisD(aa.genlight2, pop = TRUE) # Nei's 1972 distance between pops
+stamppPhylip(aa.D.pop2, file="aa.pops2_Neis_distance.phy.dst") # export matrix - for SplitsTree
+
+# create the dist objects used in analyses below
+colnames(aa.D.ind) <- rownames(aa.D.ind)
+aa.D.ind.dist<-as.dist(aa.D.ind, diag=T)
+attr(aa.D.ind.dist, "Labels")<-rownames(aa.D.ind) # name the rows of a matrix
+colnames(aa.D.pop2) <- rownames(aa.D.pop2)
+aa.D.pop.dist<-as.dist(aa.D.pop2, diag=T)
+attr(aa.D.pop.dist, "Labels")<-rownames(aa.D.pop2) # name the rows of a matrix 
+
+#Now calculate analysis of molecular variance (AMOVA) using the Nei's inter-individual distances with AAXXX populations and the five major geographical groups as grouping factors
+
+### AMOVA
+pops <- as.factor(pop(aa.genlight2)) # define populations
+groups <- as.factor(substr(indNames(aa.genlight2),1,3)) # define groups 
+# one-level AMOVA
+(res <- pegas::amova(aa.D.ind.dist ~ pops)) # one-level AMOVA, default nperm=1000
+# hierarchical AMOVA
+(res <- pegas::amova(aa.D.ind.dist ~ groups/pops)) # hierarchical AMOVA 
+
+
+#Using poppr.amova
+
+
+
+
+
+
+
+
+
+```
+
+
+### Isolation by distance
+```{r}
+coords1 <- read.delim ("AllLines_Climate_and_Soildepth1data.txt") # coordinates file for all pops
+Siteinfo <- read.delim("SiteInfo_allsamples.txt")
+coords <- merge(coords1, Siteinfo, by = "Sample")
+
+xy.coords.only<- subset(coords, select=c("Latitude","Longitude"))
+
+Dgeo <- dist(xy.coords.only)
+
+#optionally, check plotting the points on a map
+library(ggmap)
+#map <- get_googlemap("Viena, Austria", zoom = 5, maptype = "terrain")
+#mapPoints <- ggmap(map) + geom_point(data = coords, aes(x = Longitude , y = Latitude, colour="blue")) 
+#mapPoints 
+
+#test IBD
+#dim(as.matrix(Dgeo))
+#dim(as.matrix(aa.D.pop.dist))
+#dim(as.matrix(aa.D.ind.dist))
+
+IBD <- mantel.randtest(Dgeo,aa.D.ind.dist)
+IBD
+plot(Dgeo,aa.D.ind.dist, pch=20,cex=.5)
+abline(lm(aa.D.ind.dist~Dgeo)) 
+
+#plot and check for denser areas in the plot indicating sub-groups
+library(MASS)
+dens <- kde2d(Dgeo,aa.D.ind.dist, n=802, lims=c(-1, 25, 0, 0.20))
+myPal <- colorRampPalette(c("white","blue","gold", "orange", "red"))
+
+plot(Dgeo, aa.D.ind.dist, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(dens, col=transp(myPal(802),.7), add=TRUE)
+abline(lm(aa.D.ind.dist~Dgeo))
+title("IBD of all pairs") 
+
+
+#New plot
+#Europe
+dfall <- melt(as.matrix(Dgeo), varnames = c("row", "col"))
+dfall[dfall$row > dfall$col,]
+dfall1 <- melt(as.matrix(aa.D.ind.dist), varnames = c("row", "col"))
+dfall1[dfall1$row > dfall1$col,]
+dfall2 <- data.frame(x = dfall$value , y = dfall1$value,
+  dall = densCols(dfall$value, dfall1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LM <- lm(aa.D.ind.dist~Dgeo)
+coef.all <- coef(LM)
+
+aall <- ggplot(dfall2, aes(dfall$value, dfall1$value, col = dall)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.all[1],slope=coef.all[2])
+
+ball <- ggplot (dfall2, aes(x="", y=dfall$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+
+call <- ggplot (dfall2, aes("", dfall1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+all <- ggarrange(ball, NULL, aall, call, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+annotate_figure(all, top=text_grob("IBD of all indiviudal pairs", face = "bold", size = 15))
+
+
+
+
+#######################################################################
+
+### Test IBD between M and NM
+vcfM <- read.vcfR("Ahal_0.15_Only_M.vcf")
+vcfNM <- read.vcfR("Ahal_0.15_Only_NM.vcf")
+
+aa.genlightM <- vcfR2genlight(vcfM, n.cores=1)
+locNames(aa.genlightM) <- paste(vcfM@fix[,1],vcfM@fix[,2],sep="_")
+pop(aa.genlightM)<-substr(indNames(aa.genlightM),1,4) 
+
+aa.genlightNM <- vcfR2genlight(vcfNM, n.cores=1)
+locNames(aa.genlightNM) <- paste(vcfNM@fix[,1],vcfNM@fix[,2],sep="_")
+pop(aa.genlightNM)<-substr(indNames(aa.genlightNM),1,4) 
+
+aa.D.indM <- stamppNeisD(aa.genlightM, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indNM <- stamppNeisD(aa.genlightNM, pop = FALSE) # Nei's 1972 distance between indivs
+
+
+colnames(aa.D.indM) <- rownames(aa.D.indM)
+aa.D.ind.distMM<-as.dist(aa.D.indM, diag=T)
+attr(aa.D.ind.distMM, "Labels")<-rownames(aa.D.indM)
+
+colnames(aa.D.indNM) <- rownames(aa.D.indNM)
+aa.D.ind.distNMNM<-as.dist(aa.D.indNM, diag=T)
+attr(aa.D.ind.distNMNM, "Labels")<-rownames(aa.D.indNM)
+
+#aa.D.ind.distMNM<-as.dist(rbind(aa.D.indNM, aa.D.indNM), diag=T) #dist between M and NM
+#attr(aa.D.ind.distMNM, "Labels")<-rownames(aa.D.indNM)
+
+coordsM <- read.delim ("Coordinates_M.txt") # coordinates file for M pops
+coordsNM <- read.delim ("Coordinates_NM.txt") # coordinates file for NM pops
+
+xy.coords.onlyM<- subset(coordsM, select=c("Latitude","Longitude"))
+DgeoM <- dist(xy.coords.onlyM)
+xy.coords.onlyNM<- subset(coordsNM, select=c("Latitude","Longitude"))
+DgeoNM <- dist(xy.coords.onlyNM)
+
+#DgeoMNM <- dist(rbind(xy.coords.onlyM, xy.coords.onlyNM)) # dist geo between M and NM
+
+IBDMM <- mantel.randtest(DgeoM,aa.D.ind.distMM)
+IBDMM
+#plot(DgeoM,aa.D.ind.distMM, pch=20,cex=.5)
+#abline(lm(aa.D.ind.distMM~DgeoM)) 
+
+IBDNMNM <- mantel.randtest(DgeoNM,aa.D.ind.distNMNM)
+IBDNMNM
+#plot(DgeoNM,aa.D.ind.distNMNM, pch=20,cex=.5)
+#abline(lm(aa.D.ind.distNMNM~DgeoNM)) 
+
+#dim(as.matrix(DgeoMNM))
+#dim(as.matrix(aa.D.ind.distMNM))
+#IBDMNM <- mantel.randtest(DgeoMNM,aa.D.ind.distMNM)
+#IBDMNM
+#plot(Dgeo,aa.D.ind.dist, pch=20,cex=.5)
+#abline(lm(aa.D.ind.dist~Dgeo)) 
+
+plot(DgeoM, aa.D.ind.distMM, xlim=range(DgeoM, DgeoNM), ylim=range(aa.D.ind.distMM, aa.D.ind.distNMNM), col = rgb(red = 1, green = 0, blue = 0, alpha = 0.5), cex=0.5, main = "IBD of M and NM pairs", xlab = "Geographic distance", ylab = "Genetic distance") 
+points(DgeoNM, aa.D.ind.distNMNM, col = rgb(red = 0, green = 0, blue = 1, alpha = 0.08), cex=0.5) 
+abline(lm(aa.D.ind.distNMNM~DgeoNM), col= "blue")
+abline(lm(aa.D.ind.distMM~DgeoM), col = "red") 
+
+#With density for plot
+library(MASS)
+densMM <- kde2d(DgeoM,aa.D.ind.distMM, n=250, lims=c(-1, 25, 0, 0.20))
+myPal <- colorRampPalette(c("white","blue","gold", "orange", "red"))
+plot(DgeoM, aa.D.ind.distMM, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densMM, col=transp(myPal(250),.7), add=TRUE)
+abline(lm(aa.D.ind.distMM~DgeoM))
+title("IBD of M pairs") 
+
+
+densNMNM <- kde2d(DgeoNM,aa.D.ind.distNMNM, n=552, lims=c(-1, 25, 0, 0.20))
+plot(DgeoNM, aa.D.ind.distNMNM, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densNMNM, col=transp(myPal(552),.7), add=TRUE)
+abline(lm(aa.D.ind.distNMNM~DgeoNM))
+title("IBD of NM pairs") 
+
+
+#Boxplot of M and NM's genetic distance
+
+par(mfrow=c(1,2))
+
+boxplot(aa.D.ind.distMM, aa.D.ind.distNMNM, col = c("red", "blue"), xlab = "Population pairs", ylab= "Genetic distance", names = c("M pairs", "NM pairs"))
+
+boxplot(DgeoM, DgeoNM, col = c("red", "blue"), xlab = "Population pairs", ylab= "Geographic distance", names = c("M pairs", "NM pairs"))
+
+
+wilcox.test(aa.D.ind.distMM, aa.D.ind.distNMNM)
+wilcox.test(DgeoM, DgeoNM)
+
+# Merge plot
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoM, aa.D.ind.distMM, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densMM, col=transp(myPal(250),.7), add=TRUE)
+abline(lm(aa.D.ind.distMM~DgeoM))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoM, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distMM, axes=FALSE)
+mtext("IBD of M pairs", side=3, outer=TRUE, line=-3)
+
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoNM, aa.D.ind.distNMNM, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densNMNM, col=transp(myPal(552),.7), add=TRUE)
+abline(lm(aa.D.ind.distNMNM~DgeoNM))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoNM, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distNMNM, axes=FALSE)
+mtext("IBD of NM pairs", side=3, outer=TRUE, line=-3)
+
+
+
+##########################################################################################
+###IBD within genetic clusters
+vcfCA <- read.vcfR("Ahal_0.15_Only_CA.vcf")
+vcfEA <- read.vcfR("Ahal_0.15_Only_EA.vcf")
+vcfWA <- read.vcfR("Ahal_0.15_Only_WA.vcf")
+vcfCE <- read.vcfR("Ahal_0.15_Only_CE.vcf")
+vcfEE <- read.vcfR("Ahal_0.15_Only_EE.vcf")
+vcfRO <- read.vcfR("Ahal_0.15_Only_RO.vcf")
+
+
+aa.genlightCA <- vcfR2genlight(vcfCA, n.cores=1)
+locNames(aa.genlightCA) <- paste(vcfCA@fix[,1],vcfCA@fix[,2],sep="_")
+pop(aa.genlightCA)<-substr(indNames(aa.genlightCA),1,4) 
+
+aa.genlightEA <- vcfR2genlight(vcfEA, n.cores=1)
+locNames(aa.genlightEA) <- paste(vcfEA@fix[,1],vcfEA@fix[,2],sep="_")
+pop(aa.genlightEA)<-substr(indNames(aa.genlightEA),1,4)
+
+aa.genlightWA <- vcfR2genlight(vcfWA, n.cores=1)
+locNames(aa.genlightWA) <- paste(vcfWA@fix[,1],vcfWA@fix[,2],sep="_")
+pop(aa.genlightWA)<-substr(indNames(aa.genlightWA),1,4)
+
+aa.genlightCE <- vcfR2genlight(vcfCE, n.cores=1)
+locNames(aa.genlightCE) <- paste(vcfCE@fix[,1],vcfCE@fix[,2],sep="_")
+pop(aa.genlightCE)<-substr(indNames(aa.genlightCE),1,4)
+
+aa.genlightEE <- vcfR2genlight(vcfEE, n.cores=1)
+locNames(aa.genlightEE) <- paste(vcfEE@fix[,1],vcfEE@fix[,2],sep="_")
+pop(aa.genlightEE)<-substr(indNames(aa.genlightEE),1,4)
+
+aa.genlightRO <- vcfR2genlight(vcfRO, n.cores=1)
+locNames(aa.genlightRO) <- paste(vcfRO@fix[,1],vcfRO@fix[,2],sep="_")
+pop(aa.genlightRO)<-substr(indNames(aa.genlightRO),1,4)
+
+aa.D.indCA <- stamppNeisD(aa.genlightCA, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indEA <- stamppNeisD(aa.genlightEA, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indWA <- stamppNeisD(aa.genlightWA, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indCE <- stamppNeisD(aa.genlightCE, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indEE <- stamppNeisD(aa.genlightEE, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indRO <- stamppNeisD(aa.genlightRO, pop = FALSE) # Nei's 1972 distance between indivs
+
+colnames(aa.D.indCA) <- rownames(aa.D.indCA)
+aa.D.ind.distCA<-as.dist(aa.D.indCA, diag=T)
+attr(aa.D.ind.distCA, "Labels")<-rownames(aa.D.indCA)
+
+colnames(aa.D.indEA) <- rownames(aa.D.indEA)
+aa.D.ind.distEA<-as.dist(aa.D.indEA, diag=T)
+attr(aa.D.ind.distEA, "Labels")<-rownames(aa.D.indEA)
+
+colnames(aa.D.indWA) <- rownames(aa.D.indWA)
+aa.D.ind.distWA<-as.dist(aa.D.indWA, diag=T)
+attr(aa.D.ind.distWA, "Labels")<-rownames(aa.D.indWA)
+
+colnames(aa.D.indCE) <- rownames(aa.D.indCE)
+aa.D.ind.distCE<-as.dist(aa.D.indCE, diag=T)
+attr(aa.D.ind.distCE, "Labels")<-rownames(aa.D.indCE)
+
+colnames(aa.D.indEE) <- rownames(aa.D.indEE)
+aa.D.ind.distEE<-as.dist(aa.D.indEE, diag=T)
+attr(aa.D.ind.distEE, "Labels")<-rownames(aa.D.indEE)
+
+colnames(aa.D.indRO) <- rownames(aa.D.indRO)
+aa.D.ind.distRO<-as.dist(aa.D.indRO, diag=T)
+attr(aa.D.ind.distRO, "Labels")<-rownames(aa.D.indRO)
+
+
+
+coordsCA <- read.delim ("Coords_CA.txt") # coordinates file for M pops
+coordsEA <- read.delim ("Coords_EA.txt") # coordinates file for M pops
+coordsWA <- read.delim ("Coords_WA.txt") # coordinates file for M pops
+coordsCE <- read.delim ("Coords_CE.txt") # coordinates file for M pops
+coordsEE <- read.delim ("Coords_EE.txt") # coordinates file for M pops
+coordsRO <- read.delim ("Coords_RO.txt") # coordinates file for M pops
+
+xy.coords.onlyCA<- subset(coordsCA, select=c("Latitude","Longitude"))
+DgeoCA <- dist(xy.coords.onlyCA)
+
+xy.coords.onlyEA<- subset(coordsEA, select=c("Latitude","Longitude"))
+DgeoEA <- dist(xy.coords.onlyEA)
+
+xy.coords.onlyWA<- subset(coordsWA, select=c("Latitude","Longitude"))
+DgeoWA <- dist(xy.coords.onlyWA)
+
+xy.coords.onlyCE<- subset(coordsCE, select=c("Latitude","Longitude"))
+DgeoCE <- dist(xy.coords.onlyCE)
+
+xy.coords.onlyEE<- subset(coordsEE, select=c("Latitude","Longitude"))
+DgeoEE <- dist(xy.coords.onlyEE)
+
+xy.coords.onlyRO<- subset(coordsRO, select=c("Latitude","Longitude"))
+DgeoRO <- dist(xy.coords.onlyRO)
+
+
+IBDCA <- mantel.randtest(DgeoCA,aa.D.ind.distCA)
+IBDCA
+ 
+
+IBDEA <- mantel.randtest(DgeoEA,aa.D.ind.distEA)
+IBDEA
+
+
+IBDWA <- mantel.randtest(DgeoWA,aa.D.ind.distWA)
+IBDWA
+
+IBDCE <- mantel.randtest(DgeoCE,aa.D.ind.distCE)
+IBDCE
+
+IBDEE <- mantel.randtest(DgeoEE,aa.D.ind.distEE)
+IBDEE
+
+
+IBDRO <- mantel.randtest(DgeoRO,aa.D.ind.distRO)
+IBDRO
+
+#Plot for all
+ 
+par(mfrow = c(2, 3)) # 2-by-3 grid of plots
+par(oma = c(4, 4, 3, 0)) # make room (i.e. the 4's) for the overall x and y axis titles
+par(mar = c(4, 2, 4, 2)) # make the plots be closer together
+plot(DgeoCA,aa.D.ind.distCA,cex=.8, xlab = '', ylab = '', main= "CA", col=rgb(100,100,100,70,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distCA~DgeoCA), col= "blue")
+
+plot(DgeoEA,aa.D.ind.distEA, cex=.8, xlab = '', ylab = '', main= "EA", col=rgb(100,100,100,40,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distEA~DgeoEA), col= "blue") 
+
+plot(DgeoWA,aa.D.ind.distWA, cex=.8, xlab = '', ylab = '', main= "WA", col=rgb(100,100,100,70,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distWA~DgeoWA), col= "blue") 
+
+plot(DgeoCE,aa.D.ind.distCE, cex=.8, xlab = '', ylab = '', main= "CE", col=rgb(100,100,100,40,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distCE~DgeoCE), col= "blue") 
+
+plot(DgeoEE,aa.D.ind.distEE, cex=.8, xlab = '', ylab = '', main= "EE", col=rgb(100,100,100,70,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distEE~DgeoEE), col= "blue") 
+
+plot(DgeoRO,aa.D.ind.distRO, cex=.8, xlab = '', ylab = '', main= "RO", col=rgb(100,100,100,70,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distRO~DgeoRO), col= "blue")
+
+mtext('Geographic distance', side = 1, outer = TRUE, line = 2, cex=1.3)
+mtext('Genetic distance', side = 2, outer = TRUE, line = 2, cex=1.3)
+
+###IBD between Europe and Alps population
+
+vcfAlps <- read.vcfR("Ahal_0.15_Only_Alps.vcf")
+vcfEur <- read.vcfR("Ahal_0.15_Only_Europe.vcf")
+
+aa.genlightAlps <- vcfR2genlight(vcfAlps, n.cores=1)
+locNames(aa.genlightAlps) <- paste(vcfAlps@fix[,1],vcfAlps@fix[,2],sep="_")
+pop(aa.genlightAlps)<-substr(indNames(aa.genlightAlps),1,4) 
+
+aa.genlightEur <- vcfR2genlight(vcfEur, n.cores=1)
+locNames(aa.genlightEur) <- paste(vcfEur@fix[,1],vcfEur@fix[,2],sep="_")
+pop(aa.genlightEur)<-substr(indNames(aa.genlightEur),1,4) 
+
+aa.D.indAlps <- stamppNeisD(aa.genlightAlps, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indEur <- stamppNeisD(aa.genlightEur, pop = FALSE) # Nei's 1972 distance between indivs
+
+
+colnames(aa.D.indAlps) <- rownames(aa.D.indAlps)
+aa.D.ind.distAlps<-as.dist(aa.D.indAlps, diag=T)
+attr(aa.D.ind.distAlps, "Labels")<-rownames(aa.D.indAlps)
+
+colnames(aa.D.indEur) <- rownames(aa.D.indEur)
+aa.D.ind.distEur<-as.dist(aa.D.indEur, diag=T)
+attr(aa.D.ind.distEur, "Labels")<-rownames(aa.D.indEur)
+
+
+coordsAlps <- read.delim ("Coords_Alps.txt") # coordinates file for M pops
+coordsEur <- read.delim ("Coords_Europe.txt") # coordinates file for NM pops
+
+xy.coords.onlyAlps<- subset(coordsAlps, select=c("Latitude","Longitude"))
+DgeoAlps <- dist(xy.coords.onlyAlps)
+xy.coords.onlyEur<- subset(coordsEur, select=c("Latitude","Longitude"))
+DgeoEur <- dist(xy.coords.onlyEur)
+
+
+IBDAlps <- mantel.randtest(DgeoAlps,aa.D.ind.distAlps)
+IBDAlps
+#plot(DgeoM,aa.D.ind.distAlps, pch=20,cex=.5)
+#abline(lm(aa.D.ind.distAlps~DgeoAlps)) 
+
+IBDEur <- mantel.randtest(DgeoEur,aa.D.ind.distEur)
+IBDEur
+#plot(DgeoEur,aa.D.ind.distEur, pch=20,cex=.5)
+#abline(lm(aa.D.ind.distEur~DgeoEur)) 
+
+
+#With density for plot
+library(MASS)
+densAlps <- kde2d(DgeoAlps,aa.D.ind.distAlps, n=324, lims=c(-1, 25, 0, 0.20))
+densEur <- kde2d(DgeoEur,aa.D.ind.distEur, n=478, lims=c(-1, 25, 0, 0.20))
+
+myPal <- colorRampPalette(c("white", "blue", "gold", "orange", "red"))
+
+# Merge plot
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoAlps, aa.D.ind.distAlps, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densAlps, col=transp(myPal(324),.7), add=TRUE)
+abline(lm(aa.D.ind.distAlps~DgeoAlps))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoAlps, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distAlps, axes=FALSE)
+mtext("IBD of Alps pairs", side=3, outer=TRUE, line=-3)
+
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoEur, aa.D.ind.distEur, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densEur, col=transp(myPal(478),.7), add=TRUE)
+abline(lm(aa.D.ind.distEur~DgeoEur))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoEur, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distEur, axes=FALSE)
+mtext("IBD of Europe pairs", side=3, outer=TRUE, line=-3)
+
+
+## Another plot for Alps and Europe
+
+#install.packages("ggpubr")
+#install.packages("ggthemes") # Install 
+library(ggthemes)
+library(grid)
+library(ggpubr)
+library(ggplot2)
+library(reshape2)
+require(cowplot)
+library(hexbin)
+
+#Europe
+df <- melt(as.matrix(DgeoEur), varnames = c("row", "col"))
+df[df$row > df$col,]
+df1 <- melt(as.matrix(aa.D.ind.distEur), varnames = c("row", "col"))
+df1[df1$row > df1$col,]
+df2 <- data.frame(x = df$value , y = df1$value,
+  d = densCols(df$value, df1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LMEUR <- lm(aa.D.ind.distEur~DgeoEur)
+coef.EUR <- coef(LMEUR)
+
+a <- ggplot(df2, aes(df$value, df1$value, col = d)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.EUR[1],slope=coef.EUR[2])
+
+b <- ggplot (df2, aes(x="", y=df$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+
+c <- ggplot (df2, aes("", df1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+Eur <- ggarrange(b, NULL, a, c, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+F1 <- annotate_figure(Eur, top=text_grob("IBD of Europe individual pairs", face = "bold", size = 15))
+
+
+# Alps
+dfa <- melt(as.matrix(DgeoAlps), varnames = c("row", "col"))
+dfa[dfa$row > dfa$col,]
+dfa1 <- melt(as.matrix(aa.D.ind.distAlps), varnames = c("row", "col"))
+dfa1[dfa1$row > dfa1$col,]
+dfa2 <- data.frame(x = dfa$value , y = dfa1$value,
+  da = densCols(dfa$value, dfa1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LMAlps <- lm(aa.D.ind.distAlps~DgeoAlps)
+coef.Alps <- coef(LMAlps)
+
+aa <- ggplot(dfa2, aes(dfa$value, dfa1$value, col = da)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.Alps[1],slope=coef.Alps[2])
+
+ba <- ggplot (dfa2, aes(x="", y=dfa$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+
+ca <- ggplot (dfa2, aes("", dfa1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+Alps <- ggarrange(ba, NULL, aa, ca, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+F2 <- annotate_figure(Alps, top=text_grob("IBD of Alps individual pairs", face = "bold", size = 15))
+
+# M pairs
+dfM <- melt(as.matrix(DgeoM), varnames = c("row", "col"))
+dfM[dfM$row > dfM$col,]
+dfM1 <- melt(as.matrix(aa.D.ind.distMM), varnames = c("row", "col"))
+dfM1[dfM1$row > dfM1$col,]
+dfM2 <- data.frame(x = dfM$value , y = dfM1$value,
+  dm = densCols(dfM$value, dfM1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LMM <- lm(aa.D.ind.distMM~DgeoM)
+coef.M <- coef(LMM)
+
+am <- ggplot(dfM2, aes(dfM$value, dfM1$value, col = dm)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.M[1],slope=coef.M[2])
+
+bm <- ggplot (dfM2, aes(x="", y=dfM$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+
+cm <- ggplot (dfM2, aes("", dfM1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+Mrange <- ggarrange(bm, NULL, am, cm, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+F3 <- annotate_figure(Mrange, top=text_grob("IBD of M pairs", face = "bold", size = 15))
+
+
+# NM pairs
+dfNM <- melt(as.matrix(DgeoNM), varnames = c("row", "col"))
+dfNM[dfNM$row > dfNM$col,]
+dfNM1 <- melt(as.matrix(aa.D.ind.distNMNM), varnames = c("row", "col"))
+dfNM1[dfNM1$row > dfNM1$col,]
+dfNM2 <- data.frame(x = dfNM$value , y = dfNM1$value,
+  dnm = densCols(dfNM$value, dfNM1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LMNM <- lm(aa.D.ind.distNMNM~DgeoNM)
+coef.NM <- coef(LMNM)
+
+anm <- ggplot(dfNM2, aes(dfNM$value, dfNM1$value, col = dnm)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.1) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.NM[1],slope=coef.NM[2]) 
+
+
+bnm <- ggplot(dfNM2, aes(x="", y=dfNM$value)) +
+    geom_boxplot() + coord_flip() +
+    theme(plot.margin=unit(c(0,0,-100,0), "cm")) +
+    theme_transparent()
+
+cnm <- ggplot (dfNM2, aes("", dfNM1$value)) +
+    geom_boxplot() +
+    theme_transparent()
+
+NMrange <- ggarrange(bnm, NULL, anm, cnm, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+F4 <- annotate_figure(NMrange, top=text_grob("IBD of NM pairs", face = "bold", size = 15))
+
+F1
+F2
+F3
+F4
+
+install.packages("gridExtra")
+library(gridExtra)
+
+grid.arrange(F1, F2, F3, F4, nrow =2)
+
+
+
+
+
+# Function to plot color bar
+color.bar <- function(lut, min, max=-min, nticks=11, ticks=seq(min, max, len=nticks), title='') {
+    scale = (length(lut)-1)/(max-min)
+
+    dev.new(width=1.75, height=5)
+    plot(c(0,10), c(min,max), type='n', bty='n', xaxt='n', xlab='', yaxt='n', ylab='', main=title)
+    axis(2, ticks, las=1)
+    for (i in 1:(length(lut)-1)) {
+    	y = (i-1)/scale + min
+    	rect(0,y,10,y+1/scale, col=lut[i], border=NA)
+    }	
+}    
+lut = rev(rainbow(100, start=rgb2hsv(col2rgb('red'))[1], end=rgb2hsv(col2rgb('blue'))[1]))
+color.bar(lut, 0, 1)
+
+                
+#############################################################
+
+
+
+
+
+### Test correlation with genetic distance and metal concentration ######
+library(MASS)
+Soildata <- read.delim("Stein_S2_phenotypes.txt")
+
+Siteinfo <- read.delim("SiteInfo_allsamples.txt")
+soil <- merge(Soildata, Siteinfo, by = "Sample", all.y = TRUE)
+#soil2 <- merge(Soildata, Siteinfo, by = "Sample")
+
+xy.ZnCd.only<- subset(soil, select=c("Total_Cd","Total_Zn"))
+
+dim(as.matrix(xy.ZnCd.only))
+dim(xy.ZnCd.only)
+
+Dmetal <- dist(xy.ZnCd.only)
+
+IBD <- mantel.randtest(Dmetal,aa.D.ind.dist)
+IBD
+
+dens <- kde2d(Dmetal,aa.D.ind.dist, n=802)
+myPal <- colorRampPalette(c("white","blue","gold", "orange", "red"))
+
+plot(Dmetal, aa.D.ind.dist, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(dens, col=transp(myPal(802),.7), add=TRUE)
+abline(lm(aa.D.ind.dist~Dmetal))
+title("IBD of all pairs") 
+
+
+
+```
+
+
+
+
+
+

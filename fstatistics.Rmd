@@ -1,0 +1,2801 @@
+---
+title: "Heterozygosity in halleri"
+author: "Gwonjin Lee"
+date: "19 Juni 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Basic population genetics 
+```{r, echo=FALSE, warning=FALSE}
+setwd("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/Sequential growth test_Hydroponics/Statistical analysis/Heterozygosity")
+
+#install.packages("adegenet") 
+#install.packages("hierfstat")
+#install.packages("pegas")
+#install.packages("httpuv")
+#install.packages("digest")
+
+library(adegenet)
+library(hierfstat) 
+library(pegas)
+packageVersion("adegenet")
+
+data1 <- read.delim("Ahal_0.15_genotype_diploid for F statistic.hmp.txt")
+
+str(data1)
+
+Siteinfo <- read.delim("SiteInfo_allsamples.txt")
+
+ColorPCs <- read.delim("ColorPCs.txt")
+
+
+Sitename <- read.delim("Sitename with individuals.txt")
+
+Popinfo <- merge(ColorPCs, Siteinfo, by = "Sample")
+
+
+Popinfo1 <- merge(Sitename, Popinfo, by = "Sample")
+
+Popinfo2 <- Popinfo1[ -c(3:7)]
+
+Mydata <- merge(Popinfo2, data1, by = "Sample")
+head(Mydata)[,1:7]
+dim(Mydata)
+
+
+### Basic statistics 
+
+locus <- Mydata[, -c(1,2,3,4, 5)]    
+colnames(locus) <- gsub("\\.", "_", colnames(locus)) # locus names can't have "."
+ind <- as.character(Mydata$Sample) # labels of the individuals
+
+population <- as.character(Mydata$Site) # labels of the populations
+Mydata1 <- df2genind(locus, ploidy = 2, ind.names = ind, pop = population, sep = "")
+
+
+nAll(Mydata1)
+
+Mydata2 <- genind2hierfstat(Mydata1) # Create hierfstat object
+
+div <- summary(Mydata1)
+div
+
+
+
+names(div)
+
+plot(div$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+
+
+coef<- lm(div$Hexp~div$Hobs)
+coef
+summary(coef)
+
+plot(div$Hobs,div$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus across all individuals")
+abline(lm(div$Hexp~div$Hobs), col= "red")
+abline(0,1, col ="blue")
+#legend("bottomright", bty="n", legend=paste("R2=", 
+#format(summary(coef)$adj.r.squared, digits=4)))
+
+
+
+bartlett.test(list(div$Hexp, div$Hobs)) # a test : H0: Hexp = Hobs
+
+basicstat <- basic.stats(Mydata2, diploid = TRUE, digits = 2) 
+names(basicstat)
+head(basicstat)
+
+#Extract Fis per each site
+#write.table(as.data.frame(basicstat$Fis), "BasicStatistics_Fis.txt", sep = "\t", row.names = FALSE)
+FisNA <- read.delim("Fis_eachSite.txt", row.names = 1)
+Fis_df0 <- as.data.frame(t(FisNA)) 
+Fis_df <- Fis_df[complete.cases(Fis_df), ]
+ggplot(Fis_df, aes(x=Fis)) + 
+    geom_histogram(bins=50, aes(fill = ..count..) ) +
+    theme_bw() +
+    labs(x="Fis (Inbreeding coefficient)", y="Frequency") +
+    geom_vline(aes(xintercept = mean(Fis)),col='red',size=1)
+
+Selfing_df <- replace(Fis_df[,2], Fis_df[,2] < 0, 0)
+Selfing_df <- as.data.frame(Selfing_df)
+
+ggplot(Selfing_df, aes(x=Selfing_df)) + 
+    geom_histogram(bins=20, aes(fill = ..count..) ) +
+    theme_bw() +
+    labs(x="Selfing rate (%)", y="Frequency") +
+    geom_vline(aes(xintercept = mean(Selfing_df)),col='red',size=1)
+
+boot.ppfis(Mydata2) 
+
+x <- indpca(Mydata2) 
+plot(x, cex = 0.7)
+
+hw.test(Mydata1, B = 1000)
+
+
+### Population differentiation
+
+ind <- as.character(Mydata$Sample)
+population <- as.character(Mydata$Site) # use later with adegenet (population labels)
+soiltype <- Mydata$Site_ContType
+
+Genetic_cluster <- Mydata$ColorPCs
+dim(Mydata) # xxx individuals x xxxxx SNPs
+
+locus2 <- Mydata[, 6:12566] 
+colnames(locus2) <- gsub("\\.", "_", colnames(locus2)) # locus names can't have "."
+
+Mydata1 <- df2genind(locus2, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(Mydata1) 
+
+Mydata2 <- genind2hierfstat(Mydata1)
+
+all_bs <- basic.stats(Mydata1)
+
+boxplot(basic.stats(Mydata1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(Mydata1)
+
+## Hierarchical Fst tests (=AMOVA for SNP dataset)
+
+loci <- Mydata2[, -1] # Remove the population column
+
+#AMOVA between and within genetic clusters
+
+varcomp.glob(levels = data.frame(population, Genetic_cluster), loci, diploid = TRUE)
+
+test.g(loci, level = population) 
+
+test.g(loci, level = Genetic_cluster) 
+
+test.between(loci, test.lev = population, rand.unit = Genetic_cluster, nperm = 100) 
+
+
+#AMOVA between and within soil type
+
+varcomp.glob(levels = data.frame(population, soiltype), loci, diploid = TRUE)
+
+test.g(loci, level = soiltype) 
+
+test.between(loci, test.lev = population, rand.unit = soiltype, nperm = 100) 
+
+
+
+##Pairwise Fst
+#genet.dist(Mydata1, method = "WC84")
+genet.dist(Mydata1, method = "Nei87")
+#genet.dist(Mydata1, method = "Dch")
+
+
+
+###########################################################################
+##Test##
+
+ind <- as.character(Mydata$Sample)
+population <- as.character(Mydata$Site) # use later with adegenet (population labels)
+soiltype <- Mydata$Site_ContType
+
+Genetic_cluster <- Mydata$ColorPCs
+dim(Mydata) # xxx individuals x xxxxx SNPs
+
+locus2 <- Mydata[, 6:50] 
+colnames(locus2) <- gsub("\\.", "_", colnames(locus2)) # locus names can't have "."
+
+Mydata1 <- df2genind(locus2, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(Mydata1) 
+
+Mydata2 <- genind2hierfstat(Mydata1)
+
+basic.stats(Mydata1)
+
+boxplot(basic.stats(Mydata1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(Mydata1)
+
+## Hierarchical Fst tests (=AMOVA for SNP dataset)
+
+loci <- Mydata2[, -1] # Remove the population column
+
+#AMOVA between and within genetic clusters
+
+varcomp.glob(levels = data.frame(population, Genetic_cluster), loci, diploid = TRUE)
+
+test.g(loci, level = population) 
+
+test.g(loci, level = Genetic_cluster) 
+
+test.between(loci, test.lev = population, rand.unit = Genetic_cluster, nperm = 100) 
+
+
+#AMOVA between and within soil type
+
+varcomp.glob(levels = data.frame(population, soiltype), loci, diploid = TRUE)
+
+test.g(loci, level = soiltype) 
+
+test.between(loci, test.lev = population, rand.unit = soiltype, nperm = 100) 
+
+
+############################################################################
+#### Not run:
+if(require(adegenet)){
+data(Mydata1)
+## pairwise Fst
+mat.fst <- pairwise.fst(Mydata1, res.type="matrix")
+mat.fst
+}
+## Fst, Fis, Fit
+## using hierfstat
+if(require(hierfstat)){
+fstat(Mydata1)
+}
+## using pegas
+if(require(pegas)){
+data(Mydata1)
+## conversion to pegas's format
+as.loci(Mydata1)
+## use Fst from pegas
+fsttab <- Fst(as.loci(Mydata1))
+## average over loci
+apply(fsttab, 2, mean)
+}
+## End(Not run)
+
+```
+
+
+## Genetic diversity within and between genetic clusters (Populations) 
+```{r, echo=FALSE, warning=FALSE}
+
+dim(Mydata)
+
+
+CA <- Mydata[which(ColorPCs == "CA"),]
+CE <- Mydata[which(ColorPCs == "CE"),]
+EA <- Mydata[which(ColorPCs == "EA"),]
+EE <- Mydata[which(ColorPCs == "EE"),]
+RO <- Mydata[which(ColorPCs == "RO"),]
+WA <- Mydata[which(ColorPCs == "WA"),]
+
+
+##CA
+
+ind <- as.character(CA$Sample)
+population <- as.character(CA$Site) # use later with adegenet (population labels)
+soiltype <- CA$Site_ContType
+dim(CA) # xxx individuals x xxxxx SNPs
+
+locus2CA <- CA[, 6:12566] 
+colnames(locus2CA) <- gsub(".FJ", "|FJ", colnames(locus2CA)) # locus names can't have "."
+head(locus2CA)[,1:8]
+CA1 <- df2genind(locus2CA, ploidy = 2, ind.names = ind, pop = population, sep = "")
+#names(CA1) 
+
+CA2 <- genind2hierfstat(CA1)
+
+basic.stats(CA1)
+
+boxplot(basic.stats(CA1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(CA1)
+
+
+##CE
+ind <- as.character(CE$Sample)
+population <- as.character(CE$Site) # use later with adegenet (population labels)
+soiltype <- CE$Site_ContType
+dim(CE) # xxx individuals x xxxxx SNPs
+
+locus2CE <- CE[, 6:12566] 
+colnames(locus2CE) <- gsub("\\.", "_", colnames(locus2CE)) # locus names CEn't have "."
+
+CE1 <- df2genind(locus2CE, ploidy = 2, ind.names = ind, pop = population, sep = "")
+#names(CE1) 
+
+CE2 <- genind2hierfstat(CE1)
+
+basic.stats(CE1)
+
+boxplot(basic.stats(CE1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(CE1)
+
+##EA
+ind <- as.character(EA$Sample)
+population <- as.character(EA$Site) # use later with adegenet (population labels)
+soiltype <- EA$Site_ContType
+dim(EA) # xxx individuals x xxxxx SNPs
+
+locus2EA <- EA[, 6:12566] 
+colnames(locus2EA) <- gsub("\\.", "_", colnames(locus2EA)) # locus names can't have "."
+
+EA1 <- df2genind(locus2EA, ploidy = 2, ind.names = ind, pop = population, sep = "")
+#names(EA1) 
+
+EA2 <- genind2hierfstat(EA1)
+
+basic.stats(EA1)
+
+boxplot(basic.stats(EA1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(EA1)
+
+##EE
+ind <- as.character(EE$Sample)
+population <- as.character(EE$Site) # use later with adegenet (population labels)
+soiltype <- EE$Site_ContType
+dim(EE) # xxx individuals x xxxxx SNPs
+
+locus2EE <- EE[, 6:12566] 
+colnames(locus2EE) <- gsub("\\.", "_", colnames(locus2EE)) # locus names can't have "."
+
+EE1 <- df2genind(locus2EE, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(EE1) 
+
+EE2 <- genind2hierfstat(EE1)
+
+basic.stats(EE1)
+
+boxplot(basic.stats(EE1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(EE1)
+
+#RO
+ind <- as.character(RO$Sample)
+population <- as.character(RO$Site) # use later with adegenet (population labels)
+soiltype <- RO$Site_ContType
+dim(RO) # xxx individuals x xxxxx SNPs
+
+locus2RO <- RO[, 6:12566] 
+colnames(locus2RO) <- gsub("\\.", "_", colnames(locus2RO)) # locus names can't have "."
+
+RO1 <- df2genind(locus2RO, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(RO1) 
+
+RO2 <- genind2hierfstat(RO1)
+
+basic.stats(RO1)
+
+boxplot(basic.stats(RO1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(RO1)
+
+##WA
+ind <- as.character(WA$Sample)
+population <- as.character(WA$Site) # use later with adegenet (population labels)
+soiltype <- WA$Site_ContType
+dim(WA) # xxx individuals x xxxxx SNPs
+
+locus2WA <- WA[, 6:12566] 
+colnames(locus2WA) <- gsub("\\.", "_", colnames(locus2WA)) # locus names can't have "."
+
+WA1 <- df2genind(locus2WA, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(WA1) 
+
+WA2 <- genind2hierfstat(WA1)
+
+basic.stats(WA1)
+
+boxplot(basic.stats(WA1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(WA1)
+
+
+###### Merge each data and plot together with statistical test
+
+WAbs <- basic.stats(WA1)$perloc[,1:10]
+CAbs <- basic.stats(CA1)$perloc[,1:10]
+CEbs <- basic.stats(CE1)$perloc[,1:10]
+EEbs <- basic.stats(EE1)$perloc[,1:10]
+EAbs <- basic.stats(EA1)$perloc[,1:10]
+RObs <- basic.stats(RO1)$perloc[,1:10]
+
+WAbs$Subpop <- "WA" 
+CAbs$Subpop <- "CA" 
+CEbs$Subpop <- "CE" 
+EEbs$Subpop <- "EE" 
+EAbs$Subpop <- "EA" 
+RObs$Subpop <- "RO" 
+
+WAbs$Subpop <- as.factor(WAbs$Subpop)
+CAbs$Subpop <- as.factor(CAbs$Subpop)
+CEbs$Subpop <- as.factor(CEbs$Subpop)
+EEbs$Subpop <- as.factor(EEbs$Subpop)
+EAbs$Subpop <- as.factor(EAbs$Subpop) 
+RObs$Subpop <- as.factor(RObs$Subpop) 
+
+FisALL <- cbind(EAbs$Fis, CAbs$Fis, WAbs$Fis, EEbs$Fis, CEbs$Fis, RObs$Fis)
+colnames(FisALL) <- c("EA", "CA", "WA", "EE", "CE", "RO")
+boxplot(FisALL, col = c(4,6,5,2,3,"gray10"), main = "Fis within subpopulations")
+
+FstALL <- cbind(EAbs$Fst, CAbs$Fst, WAbs$Fst, EEbs$Fst, CEbs$Fst, RObs$Fst)
+colnames(FstALL) <- c("EA", "CA", "WA", "EE", "CE", "RO")
+boxplot(FstALL, col = c(4,6,5,2,3,"gray10"), main = "Fst within subpopulations")
+
+
+Allstat <- rbind(WAbs, CAbs, CEbs, EEbs, EAbs, RObs)
+AllstatwoNA <- na.omit(Allstat)
+AllstatwoNA$Fis
+
+###Statistical test (Kruskal-Wallis Test)
+
+#install.packages("mosaic")
+library(mosaic)
+
+#Fis
+
+#kruFis <- kruskal.test(Fis ~ Subpop, data=AllstatwoNA)
+#summary(kruFis)
+
+#AnovaFis <- lm(Fis ~ Subpop, data=Allstat)
+#summary(AnovaFis)
+#TukeyHSD(AnovaFis)
+#mplot(TukeyHSD(AnovaFis), system="ggplot")
+
+pairwise.wilcox.test(Allstat$Fis, Allstat$Subpop,
+                 p.adjust.method = "bonf")
+
+
+#Fst
+
+#kruFst <- kruskal.test(Fst ~ Subpop, data=AllstatwoNA)
+#summary(kruFst)
+
+#PostFst <- dunnTest(Fst~ Subpop, data=Allstat)
+#PostFst
+
+#AnovaFst <- lm(Fst ~ Subpop, data=Allstat)
+#summary(AnovaFst)
+#TukeyHSD(AnovaFst)
+#mplot(TukeyHSD(AnovaFst), system="ggplot")
+
+pairwise.wilcox.test(Allstat$Fst, Allstat$Subpop,
+                 p.adjust.method = "bonf")
+
+
+```
+
+## Genetic diversity within and between M and NM
+```{r, echo=FALSE, warning=FALSE}
+
+
+Mydata3 <- split(Mydata, Mydata$Site_ContType)
+
+M<- Mydata3[[1]]
+NM <- Mydata3[[2]]
+
+##M
+ind <- as.character(M$Sample)
+population <- as.character(M$Site) # use later with adegenet (population labels)
+soiltype <- M$Site_ContType
+dim(M) # xxx individuals x xxxxx SNPs
+
+locus2M <- M[, 6:12566] 
+colnames(locus2M) <- gsub("\\.", "_", colnames(locus2M)) # locus names can't have "."
+
+M1 <- df2genind(locus2M, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(M1) 
+
+M2 <- genind2hierfstat(M1)
+
+#basic.stats(M1)
+
+#boxplot(basic.stats(M1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+#wc(M1)
+
+##NM
+ind <- as.character(NM$Sample)
+population <- as.character(NM$Site) # use later with adegenet (population labels)
+soiltype <- NM$Site_ContType
+dim(NM) # xxx individuals x xxxxx SNPs
+
+locus2NM <- NM[, 6:12566] 
+colnames(locus2NM) <- gsub("\\.", "_", colnames(locus2NM)) # locus names can't have "."
+
+NM1 <- df2genind(locus2NM, ploidy = 2, ind.names = ind, pop = population, sep = "")
+#names(NM1) 
+
+NM2 <- genind2hierfstat(NM1)
+
+#basic.stats(NM1)
+#boxplot(basic.stats(NM1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+#wc(NM1)
+
+
+###########################################
+
+#Pairwise Fst for M/NM
+
+### Modify for merged M/NM (Mydata3 -> Mydata4???) <- find a solution based on my script and the tutorial
+
+Mydata_MNM <- Mydata
+
+ind_MNM <- as.character(Mydata_MNM$Sample)
+population_MNM  <- as.character(Mydata_MNM$Site) # use later with adegenet (population labels)
+soiltype <- Mydata_MNM$Site_ContType
+#Genetic_cluster <- Mydata$ColorPCs
+dim(Mydata_MNM) # xxx individuals x xxxxx SNPs
+
+locus2_MNM <- Mydata_MNM[, 6:12566] 
+colnames(locus2_MNM) <- gsub("\\.", "_", colnames(locus2_MNM)) # locus names can't have "."
+
+Mydata_MNM2 <- df2genind(locus2_MNM, ploidy = 2, ind.names = ind_MNM, pop = population_MNM, sep = "")
+names(Mydata_MNM2) 
+
+genet.dist(Mydata_MNM2, method = "Nei87")
+
+###########################################
+
+
+###### Merge each data and plot together with statistical test
+
+Mbs <- basic.stats(M1)$perloc[,1:10]
+NMbs <- basic.stats(NM1)$perloc[,1:10]
+dim(NMbs)
+
+all_bs2 <- all_bs$perloc[,1:10]
+dim(all_bs2)
+all_bs2$SoilType <- "All"
+Mbs$SoilType <- "M" 
+NMbs$SoilType <- "NM" 
+
+all_bs2$SoilType <- as.factor(all_bs2$SoilType)
+Mbs$SoilType <- as.factor(Mbs$SoilType)
+NMbs$SoilType <- as.factor(NMbs$SoilType)
+
+
+FisALL <- cbind(Mbs$Fis, NMbs$Fis)
+colnames(FisALL) <- c("M", "NM")
+boxplot(FisALL, col = c("red", "blue"), main = "Fis within M and NM population")
+
+FstALL <- cbind(Mbs$Fst, NMbs$Fst)
+colnames(FstALL) <- c("M", "NM")
+boxplot(FstALL, col = c("red", "blue"), main = "Fst within M and NM population")
+
+HsALL <- cbind(Mbs$Hs, NMbs$Hs)
+colnames(HsALL) <- c("M", "NM")
+boxplot(HsALL, col = c("red", "blue"), main = "Hs within M and NM population")
+
+HoALL <- cbind(Mbs$Ho, NMbs$Ho)
+colnames(HoALL) <- c("M", "NM")
+boxplot(HoALL, col = c("red", "blue"), main = "Ho within M and NM population")
+
+###Statistical test (Kruskal-Wallis Test)
+
+Allstat <- rbind(Mbs, NMbs, all_bs2)
+
+#Ho
+leveneTest(Ho ~ SoilType, data =Allstat) #Equal variance?
+
+Ho_Kru_MNM <- kruskal(Allstat$Ho, Allstat$SoilType, p.adj= "bonf", alpha = 0.0001)
+Ho_Kru_MNM$groups
+
+
+#
+
+#Hs
+leveneTest(Hs ~ SoilType, data =Allstat) #Equal variance?
+Hs_Kru_MNM <- kruskal(Allstat$Hs, Allstat$SoilType, p.adj= "bonf", alpha = 0.0001)
+Hs_Kru_MNM$groups
+
+#Ht
+leveneTest(Ht ~ SoilType, data =Allstat) #Equal variance?
+Ht_Kru_MNM <- kruskal(Allstat$Ht, Allstat$SoilType, p.adj= "bonf", alpha = 0.0001)
+Ht_Kru_MNM$groups
+
+#Fst
+leveneTest(Fst ~ SoilType, data =Allstat) #Equal variance?
+Fst_Kru_MNM <- kruskal(Allstat$Fst, Allstat$SoilType, p.adj= "bonf", alpha = 0.0001)
+Fst_Kru_MNM$groups
+
+
+#Fis
+leveneTest(Fis ~ SoilType, data =Allstat) #Equal variance?
+Fis_Kru_MNM <- kruskal(Allstat$Fis, Allstat$SoilType, p.adj= "bonf", alpha = 0.00001)
+Fis_Kru_MNM$groups
+
+all_bs$overall
+
+#Wilcox test for M and NM -> USE for pub.
+
+```
+
+
+### VcfR ##############
+
+```{r, echo=FALSE, warning=FALSE}
+#install.packages("vcfR")
+#install.packages("adegraphics")
+#install.packages("pegas")
+#install.packages("StAMPP")
+#install.packages("lattice")
+#install.packages("ape")
+setwd("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/Sequential growth test_Hydroponics/Statistical analysis/Heterozygosity")
+
+library(vcfR)
+library(adegenet)
+library(adegraphics)
+library(pegas)
+library(StAMPP)
+library(lattice)
+library(gplots)
+library(ape)
+library(ggmap) 
+
+##Add the group (genetic cluster) name to individuals in hmp and convert to vcf in Tassel
+
+ColorPCs <- read.delim("ColorPCs.txt")
+Sample_id <- read.delim("Sample_ind.txt")
+
+Id_group <- merge(Sample_id, ColorPCs, by = "Sample")
+#write.table(Id_group, "Id_group.txt", sep = "\t", row.names = FALSE)
+
+
+
+vcf <- read.vcfR("Ahal_groupname.vcf")
+head(vcf) #check the vcf object
+vcf@fix[1:10,1:7] #check 
+
+#Then plot important statistics summed over entire VCF
+chrom <- create.chromR(name='GBS_data', vcf=vcf)
+#plot(chrom) # plot the data 
+
+#Then extract the allele depths per each sample (DP field of VCF) and plot distribution of allele depths of all sites per each sample. NB: You may inspect and visualize other fields of VCF, e.g. allele depth (AD) or genotype quality (GQ)
+#quick check read depth distribution per individual
+dp <- extract.gt(vcf, element='DP', as.numeric=TRUE)
+
+#pdf("DP_RAD_data.pdf", width = 10, height=3) # boxplot
+#par(mar=c(8,4,1,1)) 
+
+#boxplot(dp, las=3, col=c("#C0C0C0", "#808080"), ylab="Read Depth (DP)",
+#las=2, cex=0.4, cex.axis=0.5)
+#dev.off()
+
+#zoom to smaller values
+#pdf("DP_RAD_data_zoom.pdf", width = 10, height=3) # boxplot
+#par(mar=c(8,4,1,1))
+#boxplot(dp, las=3, col=c("#C0C0C0", "#808080"), ylab="Read Depth (DP)",
+#las=2, cex=0.4, cex.axis=0.5, ylim=c(0,50))
+#abline(h=8, col="red")
+#dev.off() 
+
+#Convert the data into adegenet-native format called genlight.  
+### convert to genlight
+aa.genlight <- vcfR2genlight(vcf, n.cores=1)
+locNames(aa.genlight) <- paste(vcf@fix[,1],vcf@fix[,2],sep="_") # add real SNP.names
+pop(aa.genlight)<-substr(indNames(aa.genlight),1,4) # add pop names: here "population" (group) names are first 4 chars of ind name 
+
+# check the genlight
+aa.genlight # check the basic info on the genlight object
+indNames(aa.genlight) # check individual names
+#as.matrix(aa.genlight)[1:16,1:10] # see tiny bit of the data
+pop(aa.genlight) # population assignment
+# look at the total data matrix (0,1,2; white = missing data)
+#glPlot (aa.genlight) # takes some time 
+
+
+
+
+
+### Calculate Nei's distances between individuals/pops
+aa.D.ind <- stamppNeisD(aa.genlight, pop = FALSE) # Nei's 1972 distance between indivs
+stamppPhylip(aa.D.ind, file="aa.indiv_Neis_distance.phy.dst") # export matrix - for SplitsTree
+aa.D.pop <- stamppNeisD(aa.genlight, pop = TRUE) # Nei's 1972 distance between pops
+stamppPhylip(aa.D.pop, file="aa.pops_Neis_distance.phy.dst") # export matrix - for SplitsTree
+### Calculate pairwise Fst among populations
+aa.genlight@ploidy <- as.integer(ploidy(aa.genlight))
+#aa.fst<-stamppFst(aa.genlight, nboots = 1, percent =95, nclusters=4)
+#modify the matrix for opening in SplitsTree
+#aa.fst.sym <- aa.fst
+#aa.fst.sym[upper.tri(aa.fst.sym)] <- t(aa.fst.sym)[upper.tri(aa.fst.sym)]
+# add upper triangle
+#aa.fst.sym[is.na(aa.fst.sym)] <- 0
+#replace NAs with zero
+#stamppPhylip(aa.fst.sym, file="ALL_aa.pops_pairwise_Fst.phy.dst") #export matrix - for SplitsTree 
+
+### heatmap of the indivs distance matrix
+colnames(aa.D.ind) <- rownames(aa.D.ind)
+#pdf(file="Neis_dist_heatmap.pdf", width=10, height=10)
+#heatmap.2(aa.D.ind, trace="none", cexRow=0.4, cexCol=0.4)
+#dev.off() 
+# plot and save NJ tree
+#plot(nj(aa.D.ind))
+#write.tree(nj(aa.D.ind),file="NJ.Neis.dist.tree.tre") 
+
+#ow let's work with the real 64 populations, coded by the AAXXX codes. The five geographical groups will serve as grouping variables in hierarchical AMOVA. First define a new genlight with different population definition plus define the grouping variable:
+
+
+#### DEFINE the 64 original populations using the AAXXX codes
+aa.genlight2 <- aa.genlight
+pop(aa.genlight2)<-substr(indNames(aa.genlight2),1,4) # define populations as the AAXXX codes 
+
+#Then calculate interpopulation distances using this new population definition, and modify these distance matrices into a "dist" object, used in the analyses below 
+aa.D.pop2 <- stamppNeisD(aa.genlight2, pop = TRUE) # Nei's 1972 distance between pops
+stamppPhylip(aa.D.pop2, file="aa.pops2_Neis_distance.phy.dst") # export matrix - for SplitsTree
+
+# create the dist objects used in analyses below
+colnames(aa.D.ind) <- rownames(aa.D.ind)
+aa.D.ind.dist<-as.dist(aa.D.ind, diag=T)
+attr(aa.D.ind.dist, "Labels")<-rownames(aa.D.ind) # name the rows of a matrix
+colnames(aa.D.pop2) <- rownames(aa.D.pop2)
+aa.D.pop.dist<-as.dist(aa.D.pop2, diag=T)
+attr(aa.D.pop.dist, "Labels")<-rownames(aa.D.pop2) # name the rows of a matrix 
+
+#Now calculate analysis of molecular variance (AMOVA) using the Nei's inter-individual distances with AAXXX populations and the five major geographical groups as grouping factors
+
+### AMOVA
+pops <- as.factor(pop(aa.genlight2)) # define populations
+
+groups <- as.factor(substr(indNames(aa.genlight2),9,10)) # define groups 
+groups
+
+# one-level AMOVA
+(res <- pegas::amova(aa.D.ind.dist ~ pops)) # one-level AMOVA, default nperm=1000
+
+# hierarchical AMOVA (groups)
+(res <- pegas::amova(aa.D.ind.dist ~ groups/pops)) # hierarchical AMOVA 
+
+
+
+SoilT <- as.factor(substr(indNames(aa.genlight2),12,13))
+SoilT
+# hierarchical AMOVA (soil type)
+(res <- pegas::amova(aa.D.ind.dist ~ SoilT/pops)) # hierarchical AMOVA 
+
+
+# hierarchical AMOVA (group/soil type)
+(res <- pegas::amova(aa.D.ind.dist ~ groups/SoilT/pops)) # hierarchical AMOVA 
+
+# hierarchical AMOVA (soil type/group)
+(res <- pegas::amova(aa.D.ind.dist ~ SoilT/groups/pops)) # hierarchical AMOVA 
+
+
+##Poppr
+#install.packages("poppr")
+library(poppr)
+data(Aeut)
+head(Aeut)
+
+strata(Aeut) <- other(Aeut)$population_hierarchy[-1]
+agc <- as.genclone(Aeut)
+agc
+
+
+
+
+
+#####################################################################################
+### Isolation by distance
+coords1 <- read.delim ("AllLines_Climate_and_Soildepth1data.txt") # coordinates file for all pops
+Siteinfo <- read.delim("SiteInfo_allsamples.txt")
+coords <- merge(coords1, Siteinfo, by = "Sample")
+
+xy.coords.only<- subset(coords, select=c("Latitude","Longitude"))
+
+Dgeo <- dist(xy.coords.only)
+
+#optionally, check plotting the points on a map
+library(ggmap)
+map <- get_googlemap("Viena, Austria", zoom = 5, maptype = "terrain")
+mapPoints <- ggmap(map) + geom_point(data = coords, aes(x = Longitude , y = Latitude,
+colour="blue")) 
+mapPoints 
+
+#test IBD
+#dim(as.matrix(Dgeo))
+#dim(as.matrix(aa.D.pop.dist))
+#dim(as.matrix(aa.D.ind.dist))
+
+IBD <- mantel.randtest(Dgeo,aa.D.ind.dist)
+IBD
+plot(Dgeo,aa.D.ind.dist, pch=20,cex=.5)
+abline(lm(aa.D.ind.dist~Dgeo)) 
+
+#plot and check for denser areas in the plot indicating sub-groups
+library(MASS)
+dens <- kde2d(Dgeo,aa.D.ind.dist, n=802, lims=c(-1, 25, 0, 0.20))
+myPal <- colorRampPalette(c("white","blue","gold", "orange", "red"))
+
+plot(Dgeo, aa.D.ind.dist, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(dens, col=transp(myPal(802),.7), add=TRUE)
+abline(lm(aa.D.ind.dist~Dgeo))
+title("IBD of all pairs") 
+
+
+
+###  IBD between M and NM
+vcfM <- read.vcfR("Ahal_0.15_Only_M.vcf")
+vcfNM <- read.vcfR("Ahal_0.15_Only_NM.vcf")
+
+aa.genlightM <- vcfR2genlight(vcfM, n.cores=1)
+locNames(aa.genlightM) <- paste(vcfM@fix[,1],vcfM@fix[,2],sep="_")
+pop(aa.genlightM)<-substr(indNames(aa.genlightM),1,4) 
+
+aa.genlightNM <- vcfR2genlight(vcfNM, n.cores=1)
+locNames(aa.genlightNM) <- paste(vcfNM@fix[,1],vcfNM@fix[,2],sep="_")
+pop(aa.genlightNM)<-substr(indNames(aa.genlightNM),1,4) 
+
+aa.D.indM <- stamppNeisD(aa.genlightM, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indNM <- stamppNeisD(aa.genlightNM, pop = FALSE) # Nei's 1972 distance between indivs
+
+
+colnames(aa.D.indM) <- rownames(aa.D.indM)
+aa.D.ind.distMM<-as.dist(aa.D.indM, diag=T)
+attr(aa.D.ind.distMM, "Labels")<-rownames(aa.D.indM)
+
+colnames(aa.D.indNM) <- rownames(aa.D.indNM)
+aa.D.ind.distNMNM<-as.dist(aa.D.indNM, diag=T)
+attr(aa.D.ind.distNMNM, "Labels")<-rownames(aa.D.indNM)
+
+#aa.D.ind.distMNM<-as.dist(rbind(aa.D.indNM, aa.D.indNM), diag=T) #dist between M and NM
+#attr(aa.D.ind.distMNM, "Labels")<-rownames(aa.D.indNM)
+
+coordsM <- read.delim ("Coordinates_M.txt") # coordinates file for M pops
+coordsNM <- read.delim ("Coordinates_NM.txt") # coordinates file for NM pops
+
+xy.coords.onlyM<- subset(coordsM, select=c("Latitude","Longitude"))
+DgeoM <- dist(xy.coords.onlyM)
+xy.coords.onlyNM<- subset(coordsNM, select=c("Latitude","Longitude"))
+DgeoNM <- dist(xy.coords.onlyNM)
+
+DgeoMNM <- dist(rbind(xy.coords.onlyM, xy.coords.onlyNM)) # dist geo between M and NM
+
+IBDMM <- mantel.randtest(DgeoM,aa.D.ind.distMM)
+IBDMM
+#plot(DgeoM,aa.D.ind.distMM, pch=20,cex=.5)
+#abline(lm(aa.D.ind.distMM~DgeoM)) 
+
+IBDNMNM <- mantel.randtest(DgeoNM,aa.D.ind.distNMNM)
+IBDNMNM
+#plot(DgeoNM,aa.D.ind.distNMNM, pch=20,cex=.5)
+#abline(lm(aa.D.ind.distNMNM~DgeoNM)) 
+
+#dim(as.matrix(DgeoMNM))
+#dim(as.matrix(aa.D.ind.distMNM))
+#IBDMNM <- mantel.randtest(DgeoMNM,aa.D.ind.distMNM)
+#IBDMNM
+#plot(Dgeo,aa.D.ind.dist, pch=20,cex=.5)
+#abline(lm(aa.D.ind.dist~Dgeo)) 
+
+plot(DgeoM, aa.D.ind.distMM, xlim=range(DgeoM, DgeoNM), ylim=range(aa.D.ind.distMM, aa.D.ind.distNMNM), col = rgb(red = 1, green = 0, blue = 0, alpha = 0.5), cex=0.5, main = "IBD of M and NM pairs", xlab = "Geographic distance", ylab = "Genetic distance") 
+points(DgeoNM, aa.D.ind.distNMNM, col = rgb(red = 0, green = 0, blue = 1, alpha = 0.08), cex=0.5) 
+abline(lm(aa.D.ind.distNMNM~DgeoNM), col= "blue")
+abline(lm(aa.D.ind.distMM~DgeoM), col = "red") 
+
+#With density for plot
+library(MASS)
+densMM <- kde2d(DgeoM,aa.D.ind.distMM, n=250, lims=c(-1, 25, 0, 0.20))
+myPal <- colorRampPalette(c("white","blue","gold", "orange", "red"))
+plot(DgeoM, aa.D.ind.distMM, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densMM, col=transp(myPal(250),.7), add=TRUE)
+abline(lm(aa.D.ind.distMM~DgeoM))
+title("IBD of M pairs") 
+
+
+densNMNM <- kde2d(DgeoNM,aa.D.ind.distNMNM, n=552, lims=c(-1, 25, 0, 0.20))
+plot(DgeoNM, aa.D.ind.distNMNM, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densNMNM, col=transp(myPal(552),.7), add=TRUE)
+abline(lm(aa.D.ind.distNMNM~DgeoNM))
+title("IBD of NM pairs") 
+
+
+#Boxplot of M and NM's genetic distance
+
+par(mfrow=c(1,2))
+
+boxplot(aa.D.ind.distMM, aa.D.ind.distNMNM, col = c("red", "blue"), xlab = "Population pairs", ylab= "Genetic distance", names = c("M pairs", "NM pairs"))
+
+boxplot(DgeoM, DgeoNM, col = c("red", "blue"), xlab = "Population pairs", ylab= "Geographic distance", names = c("M pairs", "NM pairs"))
+
+
+wilcox.test(aa.D.ind.distMM, aa.D.ind.distNMNM)
+wilcox.test(DgeoM, DgeoNM)
+
+# Merge plot
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoM, aa.D.ind.distMM, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densMM, col=transp(myPal(250),.7), add=TRUE)
+abline(lm(aa.D.ind.distMM~DgeoM))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoM, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distMM, axes=FALSE)
+mtext("IBD of M pairs", side=3, outer=TRUE, line=-3)
+
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoNM, aa.D.ind.distNMNM, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densNMNM, col=transp(myPal(552),.7), add=TRUE)
+abline(lm(aa.D.ind.distNMNM~DgeoNM))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoNM, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distNMNM, axes=FALSE)
+mtext("IBD of NM pairs", side=3, outer=TRUE, line=-3)
+
+
+
+#############
+#IBD for M/NM Alps/Non
+
+###  IBD between M and NM
+vcfM_Alps <- read.vcfR("Alps_M_VCF.vcf")
+vcfNM_Alps <- read.vcfR("Alps_NM_VCF.vcf")
+
+vcfM_Nalps <- read.vcfR("NonAlps_M_VCF.vcf")
+vcfNM_Nalps <- read.vcfR("NonAlps_NM_VCF.vcf")
+
+
+aa.genlightM_Alps <- vcfR2genlight(vcfM_Alps, n.cores=1)
+locNames(aa.genlightM_Alps) <- paste(vcfM_Alps@fix[,1],vcfM_Alps@fix[,2],sep="_")
+pop(aa.genlightM_Alps)<-substr(indNames(aa.genlightM_Alps),1,4) 
+
+aa.genlightNM_Alps <- vcfR2genlight(vcfNM_Alps, n.cores=1)
+locNames(aa.genlightNM_Alps) <- paste(vcfNM_Alps@fix[,1],vcfNM_Alps@fix[,2],sep="_")
+pop(aa.genlightNM_Alps)<-substr(indNames(aa.genlightNM_Alps),1,4) 
+
+
+aa.genlightM_Nalps <- vcfR2genlight(vcfM_Nalps, n.cores=1)
+locNames(aa.genlightM_Nalps) <- paste(vcfM_Nalps@fix[,1],vcfM_Nalps@fix[,2],sep="_")
+pop(aa.genlightM_Nalps)<-substr(indNames(aa.genlightM_Nalps),1,4) 
+
+aa.genlightNM_Nalps <- vcfR2genlight(vcfNM_Nalps, n.cores=1)
+locNames(aa.genlightNM_Nalps) <- paste(vcfNM_Nalps@fix[,1],vcfNM_Nalps@fix[,2],sep="_")
+pop(aa.genlightNM_Nalps)<-substr(indNames(aa.genlightNM_Nalps),1,4) 
+
+
+aa.D.indM_Alps <- stamppNeisD(aa.genlightM_Alps, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indNM_Alps <- stamppNeisD(aa.genlightNM_Alps, pop = FALSE) # Nei's 1972 distance between indivs
+
+aa.D.indM_Nalps <- stamppNeisD(aa.genlightM_Nalps, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indNM_Nalps <- stamppNeisD(aa.genlightNM_Nalps, pop = FALSE) # Nei's 1972 distance between indivs
+
+
+colnames(aa.D.indM_Alps) <- rownames(aa.D.indM_Alps)
+aa.D.ind.distM_AlpsM_Alps<-as.dist(aa.D.indM_Alps, diag=T)
+attr(aa.D.ind.distM_AlpsM_Alps, "Labels")<-rownames(aa.D.indM_Alps)
+
+colnames(aa.D.indNM_Alps) <- rownames(aa.D.indNM_Alps)
+aa.D.ind.distNM_AlpsNM_Alps<-as.dist(aa.D.indNM_Alps, diag=T)
+attr(aa.D.ind.distNM_AlpsNM_Alps, "Labels")<-rownames(aa.D.indNM_Alps)
+
+colnames(aa.D.indM_Nalps) <- rownames(aa.D.indM_Nalps)
+aa.D.ind.distM_NalpsM_Nalps<-as.dist(aa.D.indM_Nalps, diag=T)
+attr(aa.D.ind.distM_NalpsM_Nalps, "Labels")<-rownames(aa.D.indM_Nalps)
+
+colnames(aa.D.indNM_Nalps) <- rownames(aa.D.indNM_Nalps)
+aa.D.ind.distNM_NalpsNM_Nalps<-as.dist(aa.D.indNM_Nalps, diag=T)
+attr(aa.D.ind.distNM_NalpsNM_Nalps, "Labels")<-rownames(aa.D.indNM_Nalps)
+
+#aa.D.ind.distMNM<-as.dist(rbind(aa.D.indNM, aa.D.indNM), diag=T) #dist between M and NM
+#attr(aa.D.ind.distMNM, "Labels")<-rownames(aa.D.indNM)
+
+coords_all <- read.delim("Coordinates for Tassel.txt", header = FALSE)
+colnames(coords_all) <- as.character(unlist(coords_all[3,]))
+coords_all = coords_all[c(-1:-3), ]
+head(coords_all)
+
+M_Alps <- read.delim ("Alps_M.txt", header = FALSE) 
+colnames(M_Alps) <- as.character(unlist(M_Alps[3,]))
+M_Alps = M_Alps[c(-1:-3), ]
+head(M_Alps)
+
+NM_Alps <- read.delim ("Alps_NM.txt", header = FALSE) 
+colnames(NM_Alps) <- as.character(unlist(NM_Alps[3,]))
+NM_Alps = NM_Alps[c(-1:-3), ]
+head(NM_Alps)
+
+M_Nalps <- read.delim ("NonAlps_M.txt", header = FALSE) 
+colnames(M_Nalps) <- as.character(unlist(M_Nalps[3,]))
+M_Nalps = M_Nalps[c(-1:-3), ]
+head(M_Nalps)
+
+NM_Nalps <- read.delim ("NonAlps_NM.txt", header = FALSE) 
+colnames(NM_Nalps) <- as.character(unlist(NM_Nalps[3,]))
+NM_Nalps = NM_Nalps[c(-1:-3), ]
+head(NM_Nalps) 
+
+coordsM_Alps <- merge(coords_all, M_Alps, by = "Taxa")
+coordsNM_Alps <- merge(coords_all, NM_Alps, by = "Taxa") 
+
+coordsM_Nalps <- merge(coords_all, M_Nalps, by = "Taxa") 
+coordsNM_Nalps <- merge(coords_all, NM_Nalps, by = "Taxa")
+
+
+xy.coords.onlyM_Alps<- subset(coordsM_Alps, select=c("Latitude","Longitude"))
+DgeoM_Alps <- dist(xy.coords.onlyM_Alps)
+xy.coords.onlyNM_Alps<- subset(coordsNM_Alps, select=c("Latitude","Longitude"))
+DgeoNM_Alps <- dist(xy.coords.onlyNM_Alps)
+
+
+xy.coords.onlyM_Nalps<- subset(coordsM_Nalps, select=c("Latitude","Longitude"))
+DgeoM_Nalps <- dist(xy.coords.onlyM_Nalps)
+xy.coords.onlyNM_Nalps<- subset(coordsNM_Nalps, select=c("Latitude","Longitude"))
+DgeoNM_Nalps <- dist(xy.coords.onlyNM_Nalps)
+
+
+#DgeoMNM <- dist(rbind(xy.coords.onlyM, xy.coords.onlyNM)) # dist geo between M and NM
+
+IBDM_AlpsM_Alps <- mantel.randtest(DgeoM_Alps,aa.D.ind.distM_AlpsM_Alps)
+IBDM_AlpsM_Alps
+ 
+
+IBDNM_AlpsNM_Alps <- mantel.randtest(DgeoNM_Alps,aa.D.ind.distNM_AlpsNM_Alps)
+IBDNM_AlpsNM_Alps
+
+IBDM_NalpsM_Nalps <- mantel.randtest(DgeoM_Nalps,aa.D.ind.distM_NalpsM_Nalps)
+IBDM_NalpsM_Nalps
+ 
+
+IBDNM_NalpsNM_Nalps <- mantel.randtest(DgeoNM_Nalps,aa.D.ind.distNM_NalpsNM_Nalps)
+IBDNM_NalpsNM_Nalps
+
+
+
+#With density for plot
+library(MASS)
+densM_AlpsM_Alps <- kde2d(DgeoM_Alps,aa.D.ind.distM_AlpsM_Alps, n=250, lims=c(-1, 25, 0, 0.20))
+
+densNM_AlpsNM_Alps <- kde2d(DgeoNM_Alps,aa.D.ind.distNM_AlpsNM_Alps, n=552, lims=c(-1, 25, 0, 0.20))
+
+densM_NalpsM_Nalps <- kde2d(DgeoM_Nalps,aa.D.ind.distM_NalpsM_Nalps, n=250, lims=c(-1, 25, 0, 0.20))
+
+densNM_NalpsNM_Nalps <- kde2d(DgeoNM_Nalps,aa.D.ind.distNM_NalpsNM_Nalps, n=552, lims=c(-1, 25, 0, 0.20))
+
+# Merge plot
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoM_Alps, aa.D.ind.distM_AlpsM_Alps, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densM_AlpsM_Alps, col=transp(myPal(250),.7), add=TRUE)
+abline(lm(aa.D.ind.distM_AlpsM_Alps~DgeoM_Alps))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoM_Alps, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distM_AlpsM_Alps, axes=FALSE)
+mtext("IBD of M Alpine individuals", side=3, outer=TRUE, line=-3)
+
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoNM_Alps, aa.D.ind.distNM_AlpsNM_Alps, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densNM_AlpsNM_Alps, col=transp(myPal(552),.7), add=TRUE)
+abline(lm(aa.D.ind.distNM_AlpsNM_Alps~DgeoNM_Alps))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoNM_Alps, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distNM_AlpsNM_Alps, axes=FALSE)
+mtext("IBD of NM Alpine individuals", side=3, outer=TRUE, line=-3)
+
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoM_Nalps, aa.D.ind.distM_NalpsM_Nalps, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densM_NalpsM_Nalps, col=transp(myPal(250),.7), add=TRUE)
+abline(lm(aa.D.ind.distM_NalpsM_Nalps~DgeoM_Nalps))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoM_Nalps, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distM_NalpsM_Nalps, axes=FALSE)
+mtext("IBD of M non-Alpine individuals", side=3, outer=TRUE, line=-3)
+
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoNM_Nalps, aa.D.ind.distNM_NalpsNM_Nalps, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densNM_NalpsNM_Nalps, col=transp(myPal(552),.7), add=TRUE)
+abline(lm(aa.D.ind.distNM_NalpsNM_Nalps~DgeoNM_Nalps))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoNM_Nalps, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distNM_NalpsNM_Nalps, axes=FALSE)
+mtext("IBD of NM non-Alpine individuals", side=3, outer=TRUE, line=-3)
+
+#Another plots
+#M alps
+df_M_Alps <- melt(as.matrix(DgeoM_Alps), varnames = c("row", "col"))
+df_M_Alps[df_M_Alps$row > df_M_Alps$col,]
+df_M_Alps1 <- melt(as.matrix(aa.D.ind.distM_AlpsM_Alps), varnames = c("row", "col"))
+df_M_Alps1[df_M_Alps1$row > df_M_Alps1$col,]
+df_M_Alps2 <- data.frame(x = df_M_Alps$value , y = df_M_Alps1$value,
+  d = densCols(df_M_Alps$value, df_M_Alps1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LM_M_Alps<- lm(aa.D.ind.distM_AlpsM_Alps~DgeoM_Alps)
+coef.M_Alps <- coef(LM_M_Alps)
+
+aM_Alps_p <- ggplot(df_M_Alps2, aes(df_M_Alps$value, df_M_Alps1$value, col = d)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.M_Alps[1],slope=coef.M_Alps[2])
+
+bM_Alps_p <- ggplot (df_M_Alps2, aes(x="", y=df_M_Alps$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+
+cM_Alps_p <- ggplot (df_M_Alps2, aes("", df_M_Alps1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+M_Alps_p <- ggarrange(bM_Alps_p, NULL, aM_Alps_p, cM_Alps_p, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+F_M_Alps <- annotate_figure(M_Alps_p, top=text_grob("IBD of M Alpine individuals", face = "bold", size = 15))
+
+#NM_Alps
+df_NM_Alps <- melt(as.matrix(DgeoNM_Alps), varnames = c("row", "col"))
+df_NM_Alps[df_NM_Alps$row > df_NM_Alps$col,]
+df_NM_Alps1 <- melt(as.matrix(aa.D.ind.distNM_AlpsNM_Alps), varnames = c("row", "col"))
+df_NM_Alps1[df_NM_Alps1$row > df_NM_Alps1$col,]
+df_NM_Alps2 <- data.frame(x = df_NM_Alps$value , y = df_NM_Alps1$value,
+  d = densCols(df_NM_Alps$value, df_NM_Alps1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LNM_NM_Alps<- lm(aa.D.ind.distNM_AlpsNM_Alps~DgeoNM_Alps)
+coef.NM_Alps <- coef(LNM_NM_Alps)
+
+aNM_Alps_p <- ggplot(df_NM_Alps2, aes(df_NM_Alps$value, df_NM_Alps1$value, col = d)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.NM_Alps[1],slope=coef.NM_Alps[2])
+
+bNM_Alps_p <- ggplot (df_NM_Alps2, aes(x="", y=df_NM_Alps$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+
+cNM_Alps_p <- ggplot (df_NM_Alps2, aes("", df_NM_Alps1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+NM_Alps_p <- ggarrange(bNM_Alps_p, NULL, aNM_Alps_p, cNM_Alps_p, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+F_NM_Alps <- annotate_figure(NM_Alps_p, top=text_grob("IBD of NM Alpine individuals", face = "bold", size = 15))
+
+#M non-alps
+df_M_Nalps <- melt(as.matrix(DgeoM_Nalps), varnames = c("row", "col"))
+df_M_Nalps[df_M_Nalps$row > df_M_Nalps$col,]
+df_M_Nalps1 <- melt(as.matrix(aa.D.ind.distM_NalpsM_Nalps), varnames = c("row", "col"))
+df_M_Nalps1[df_M_Nalps1$row > df_M_Nalps1$col,]
+df_M_Nalps2 <- data.frame(x = df_M_Nalps$value , y = df_M_Nalps1$value,
+  d = densCols(df_M_Nalps$value, df_M_Nalps1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LM_M_Nalps<- lm(aa.D.ind.distM_NalpsM_Nalps~DgeoM_Nalps)
+coef.M_Nalps <- coef(LM_M_Nalps)
+
+aM_Nalps_p <- ggplot(df_M_Nalps2, aes(df_M_Nalps$value, df_M_Nalps1$value, col = d)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.M_Nalps[1],slope=coef.M_Nalps[2])
+
+bM_Nalps_p <- ggplot (df_M_Nalps2, aes(x="", y=df_M_Nalps$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+
+cM_Nalps_p <- ggplot (df_M_Nalps2, aes("", df_M_Nalps1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+M_Nalps_p <- ggarrange(bM_Nalps_p, NULL, aM_Nalps_p, cM_Nalps_p, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+F_M_Nalps <- annotate_figure(M_Nalps_p, top=text_grob("IBD of M non-Alpine individuals", face = "bold", size = 15))
+
+#NM_Nalps
+df_NM_Nalps <- melt(as.matrix(DgeoNM_Nalps), varnames = c("row", "col"))
+df_NM_Nalps[df_NM_Nalps$row > df_NM_Nalps$col,]
+df_NM_Nalps1 <- melt(as.matrix(aa.D.ind.distNM_NalpsNM_Nalps), varnames = c("row", "col"))
+df_NM_Nalps1[df_NM_Nalps1$row > df_NM_Nalps1$col,]
+df_NM_Nalps2 <- data.frame(x = df_NM_Nalps$value , y = df_NM_Nalps1$value,
+  d = densCols(df_NM_Nalps$value, df_NM_Nalps1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LNM_NM_Nalps<- lm(aa.D.ind.distNM_NalpsNM_Nalps~DgeoNM_Nalps)
+coef.NM_Nalps <- coef(LNM_NM_Nalps)
+
+aNM_Nalps_p <- ggplot(df_NM_Nalps2, aes(df_NM_Nalps$value, df_NM_Nalps1$value, col = d)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.NM_Nalps[1],slope=coef.NM_Nalps[2])
+
+bNM_Nalps_p <- ggplot (df_NM_Nalps2, aes(x="", y=df_NM_Nalps$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+
+cNM_Nalps_p <- ggplot (df_NM_Nalps2, aes("", df_NM_Nalps1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+NM_Nalps_p <- ggarrange(bNM_Nalps_p, NULL, aNM_Nalps_p, cNM_Nalps_p, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+F_NM_Nalps <- annotate_figure(NM_Nalps_p, top=text_grob("IBD of NM non-Alpine individuals", face = "bold", size = 15))
+
+```
+
+
+Inbreeding coefficient between M and NM (from each site)
+```{r}
+setwd("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/Sequential growth test_Hydroponics/Statistical analysis/Heterozygosity")
+Fis_each <- read.delim("Fis_eachSite2.txt", header = TRUE)
+dim(Fis_each)
+
+Site_MNM <- merge(Siteinfo, Sitename, by = "Sample")
+Site_Pop <- Site_MNM[!duplicated(Site_MNM$Site),] #Remove duplicated
+dim(Site_Pop)
+colnames(Site_Pop)[4] <- "Population"
+
+Fis_Pop <- merge(Fis_each, Site_Pop, by = "Population")
+
+boxplot(Fis ~ Site_ContType, data = Fis_Pop)
+
+## What about using Fstatistics for total M and NM sites instead of average of each site?
+
+
+```
+
+#Using pcadapt to detect local adaptation
+```{r}
+#install.packages("pcadapt")
+#install.packages("vegan")
+#install.packages("robustbase")
+
+library(robustbase)
+library(pcadapt)
+
+setwd("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/Sequential growth test_Hydroponics/Statistical analysis/Heterozygosity/pcadapt")
+
+path_to_file <- "Ahal_postFinalFilter_Imputed_BadSampsRemoved_15%_LinkimputeR.vcf"
+vcf_pcadapt <- read.pcadapt(path_to_file, type = "vcf")
+
+head(vcf_pcadapt)[,1:10]
+
+
+x <- pcadapt(input = vcf_pcadapt, K = 20) 
+
+plot(x, option = "scores", i=11, j=12)
+plot(x, option = "screeplot")
+plot(x, option = "screeplot", K = 10)
+
+Test_x <-  (x$singular.values)^2
+sum(Test_x[1:6])
+write.table(as.data.frame(x$scores), "PC_20_pcadapt.txt", sep = "\t", row.names = FALSE)
+
+x30 <- pcadapt(input = vcf_pcadapt, K = 30, min.maf = 0.01) 
+
+
+plot(x , option = "manhattan")
+plot(x, option = "qqplot", ylim = c(0,1000) )
+hist(x$pvalues, xlab = "p-values", main = NULL, breaks = 50, col = "grey")
+plot(x, option = "stat.distribution")
+
+#bonferroni
+padj <- p.adjust(x$pvalues,method="bonferroni")
+alpha <- 0.05
+outliers <- which(padj < alpha)
+length(outliers)
+
+
+
+#Q value
+#BiocManager::install("qvalue")
+library(qvalue)
+qval <- qvalue(x$pvalues)$qvalues
+alpha <- 0.1
+outliers <- which(qval < alpha)
+length(outliers)
+snp_pc_20 <- get.pc(x, outliers)
+
+
+ID_outlier <- as.data.frame(outliers)
+ID_outlier <- cbind(ID_outlier, outliers)
+colnames(ID_outlier)[1] <- "ID"
+ID_outlier$ID <- as.character(ID_outlier$ID)
+
+
+
+#write.table(as.data.frame(outliers), "Outlier_Q_0.05_MAF0.05.txt", sep = "\t", row.names = FALSE)
+library(data.table)
+library(vcfR)
+
+vcf_anno <- read.vcfR("test_SNPanno.vcf")
+head(vcf_anno) #check the vcf object
+vcf_anno@fix[1:2,1:8] #check 
+
+vcf_anno2 <- vcf_anno@fix[,1:8]
+head(vcf_anno2)[,1:7]
+vcf_anno2 <- as.data.frame(vcf_anno2)
+
+ID <- c(1:12561)
+rownames(vcf_anno2) <- ID
+head(vcf_anno2)[,1:7]
+setDT(vcf_anno2, keep.rownames = TRUE)[]
+colnames(vcf_anno2)[4] <- "Id"
+colnames(vcf_anno2)[1] <- "ID"
+head(vcf_anno2)[,1:5]
+tail(vcf_anno2)[,1:5]
+dim(vcf_anno2)
+
+outlier_Anno <- merge(vcf_anno2, ID_outlier, by ="ID")
+head(outlier_Anno)
+#write.table(as.data.frame(outlier_Anno), "Outlier_Q_0.05_MAF0.05_Anno.txt", sep = "\t", row.names = FALSE)
+
+outlier_genes <- read.delim("Outlier_Q_0.05_MAF0.05_Anno.txt")
+# Add annotation for AGI
+Predata <- read.delim("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/RNA seq/DESeq2/Result/New result2/Tables/Pre_dataset S1.txt")
+Predata2 <- Predata[,1:9]
+Predata3 <- Predata[,1:10]
+
+
+outliers_final <- merge(outlier_genes, Predata2, by = "genes")
+#write.table(as.data.frame(outliers_final), "Outlier_Q_0.05_MAF0.05_FINAL.txt", sep = "\t", row.names = FALSE)
+
+
+#######Final
+#MAF 0.01, k=6
+x2 <- pcadapt(input = vcf_pcadapt, K = 6, min.maf = 0.01) 
+summary(x2)
+str(x2)
+class(x2$scores)
+head(x2$af)
+min(x2$pvalues)
+head(x2$singular.values)
+
+Variance_6 <-  (x2$singular.values)^2
+
+write.table(as.data.frame(x2$scores), "PC_6_pcadapt.txt", sep = "\t", row.names = FALSE)
+
+plot(x2 , option = "manhattan", threshold = -log10(0.007330000))
+plot(x2, option = "qqplot", ylim = c(0,1000) )
+hist(x2$pvalues, xlab = "p-values", main = NULL, breaks = 50, col = "grey")
+plot(x2, option = "stat.distribution")
+plot(x2, option = "scores", i=1, j=3)
+plot(x2, option = "screeplot")
+
+#q < 0.05
+#BiocManager::install("qvalue")
+library(qvalue)
+class(x2)
+qval <- qvalue(x2$pvalues)$qvalues
+
+x2$qval <- qval
+x3 <- cbind(x2$pvalues, x2$qval)
+
+alpha2 <- 0.05
+outliers2 <- which(qval < alpha2)
+length(outliers2)
+
+snp_pc <- get.pc(x2, outliers2)
+colnames(snp_pc)[1] <- "ID"
+class(snp_pc)
+
+ID_outlier2 <- as.data.frame(outliers2)
+ID_outlier2 <- cbind(ID_outlier2, outliers2)
+colnames(ID_outlier2)[1] <- "ID"
+ID_outlier2$ID <- as.character(ID_outlier2$ID)
+
+outlier_Anno2 <- merge(vcf_anno2, ID_outlier2, by ="ID")
+class(outlier_Anno2)
+
+
+#write.table(as.data.frame(Outlier_Anno2), "Outlier_Q_0.05_MAF0.01_Anno.txt", sep = "\t", row.names = FALSE)
+
+######################
+
+#All merged table
+data_x2 <- cbind(x2$pass, x2$maf, x2$pvalues,  qval)
+colnames(data_x2) <- c("ID", "MAF", "p_value", "q_value")
+tail(data_x2)
+data_x2 <- as.data.frame(data_x2)
+class(data_x2)
+outliers2_data <- subset(data_x2, q_value < 0.05)
+dim(outliers2_data)
+outliers2_data$ID <- as.character(outliers2_data$ID)
+data_outliers_x2 <- merge(vcf_anno2, outliers2_data, by = "ID")
+tail(data_outliers_x2)[,1:8]
+dim(data_outliers_x2)
+
+Data_outliers_x2 <- merge(as.data.frame(data_outliers_x2), snp_pc, by = "ID")
+
+setwd("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/Sequential growth test_Hydroponics/Statistical analysis/Heterozygosity/pcadapt")
+
+#write.table(as.data.frame(Data_outliers_x2), "Outlier_Q_0.05_MAF0.01_Anno_qvalue.txt", sep = "\t", row.names = FALSE)
+#ID-1 in excel
+#Extract gene name (g00001)
+outlier_genes2 <- read.delim("Outlier_Q_0.05_MAF0.01_Anno_qvalue.txt")
+outliers_final2 <- merge(Predata3, outlier_genes2, by = "genes")
+head(outliers_final2)
+
+  
+#write.table(as.data.frame(outliers_final2), "Outlier_Q_0.05_MAF0.01_FINAL.txt", sep = "\t", row.names = FALSE)
+
+```
+
+
+#Fstatistic for M/NM and Neutral/Outlier separately within subsets
+```{r}
+setwd("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/Sequential growth test_Hydroponics/Statistical analysis/Heterozygosity/pcadapt")
+
+library(data.table)
+
+#data1 <- read.delim("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/Sequential growth test_Hydroponics/Statistical analysis/Heterozygosity/Ahal_0.15_genotype_diploid for F statistic.hmp.txt")
+head(data1)[,1:3]
+
+Ahal_hmp <- read.delim("Genotyping_file/Ahal.hmp.txt")
+head(Ahal_hmp)[,1:3]
+colnames(Ahal_hmp)[1] <- "Id_SNP"
+
+#Split to M and NM
+
+M_sample <- subset(Site_MNM, Site_ContType == "M")
+NM_sample <- subset(Site_MNM, Site_ContType == "NM")
+
+M_hmp <- merge(M_sample, data1, by = "Sample")
+NM_hmp <- merge(NM_sample, data1, by = "Sample")
+dim(M_hmp) #250
+head(M_hmp)[,1:10]
+dim(NM_hmp) #552
+
+#Outliers in M and NM
+
+M_hmp_t <- t(M_hmp)
+tail(M_hmp_t)[,1:10]
+dim(M_hmp_t)
+M_hmp_t2 <- M_hmp_t[5:12565,]
+colnames(M_hmp_t2) <- M_hmp_t[1,]
+M_hmp_t2 <- setDT(as.data.frame(M_hmp_t2), keep.rownames = TRUE)[]
+colnames(M_hmp_t2)[1] <- "Id_SNP"
+head(M_hmp_t2)[,1:5]
+M_hmp_t2 <- as.data.frame(M_hmp_t2)
+M_hmp_t3 <- cbind(ID, M_hmp_t2)
+head(M_hmp_t3)[,1:5]
+M_hmp_t3$ID <- as.factor(M_hmp_t3$ID)
+ID_outlier2$ID <- as.factor(ID_outlier2$ID)
+M_hmp_out <- merge(M_hmp_t3, ID_outlier2, by = "ID")
+M_hmp_out <- M_hmp_out[,2:252]
+#View(M_hmp_out)
+head(M_hmp_out)[,1:10]
+dim(M_hmp_out)
+
+library(stringr)
+M_hmp_out2 <- M_hmp_out
+M_hmp_out2$Id_SNP <- gsub(".FJ", "|FJ", M_hmp_out2$Id_SNP)
+M_out_hmp <- merge(Ahal_hmp[,1:11], M_hmp_out2, by = "Id_SNP")
+dim(M_out_hmp)
+colnames(M_out_hmp)[1] <- "rs"
+
+#write.table(as.data.frame(M_out_hmp), "Genotyping_file/M_out.hmp.txt", sep = "\t", row.names = FALSE)
+
+
+##
+NM_hmp_t <- t(NM_hmp)
+NM_hmp_t2 <- NM_hmp_t[5:12565,]
+colnames(NM_hmp_t2) <- NM_hmp_t[1,]
+NM_hmp_t2 <- setDT(as.data.frame(NM_hmp_t2), keep.rownames = TRUE)[]
+colnames(NM_hmp_t2)[1] <- "Id_SNP"
+head(NM_hmp_t2)[,1:5]
+
+NM_hmp_t2 <- as.data.frame(NM_hmp_t2)
+NM_hmp_t3 <- cbind(ID, NM_hmp_t2)
+head(NM_hmp_t3)[,1:5]
+NM_hmp_t3$ID <- as.factor(NM_hmp_t3$ID)
+
+NM_hmp_out <- merge(NM_hmp_t3, ID_outlier2, by = "ID")
+NM_hmp_out <- NM_hmp_out[,2:554]
+dim(NM_hmp_out)
+
+NM_hmp_out2 <- NM_hmp_out
+NM_hmp_out2$Id_SNP <- gsub(".FJ", "|FJ", NM_hmp_out2$Id_SNP)
+NM_out_hmp <- merge(Ahal_hmp[,1:11], NM_hmp_out2, by = "Id_SNP")
+dim(NM_out_hmp)
+head(NM_out_hmp)[,1:13]
+colnames(NM_out_hmp)[1] <- "rs"
+#write.table(as.data.frame(NM_out_hmp), "Genotyping_file/NM_out.hmp.txt", sep = "\t", row.names = FALSE)
+
+#Marker ID
+
+ID_SNP <- colnames(M_hmp)
+ID_SNP <- as.data.frame(ID_SNP)[5:12565,]
+ID_SNP <- as.data.frame(ID_SNP)
+ID_SNP <- cbind(ID, ID_SNP )
+head(ID_SNP)
+ID_SNP$ID <- as.character(ID_SNP$ID)
+ID_SNP$ID_SNP <- as.character(ID_SNP$ID_SNP)
+
+#Neutral loci (all loci excluding outliers MAF < 0.01)
+library(tidyverse)
+library(plyr)
+head(ID_outlier2)
+
+head(M_hmp_t3)[,1:5]
+M_hmp_t3_out <- rbind.fill(M_hmp_t3, ID_outlier2)
+head(M_hmp_t3_out)[,1:5]
+tail(M_hmp_t3_out)[,1:5]
+dim(M_hmp_t3_out)
+M_hmp_neu <- M_hmp_t3_out[!(duplicated(M_hmp_t3_out$ID)|duplicated(M_hmp_t3_out$ID, fromLast=TRUE)),]
+dim(M_hmp_neu)
+M_hmp_neu <- M_hmp_neu[,2:252]
+
+M_hmp_neu2 <- M_hmp_neu
+M_hmp_neu2$Id_SNP <- gsub(".FJ", "|FJ", M_hmp_neu2$Id_SNP)
+M_neu_hmp <- merge(Ahal_hmp[,1:11], M_hmp_neu2, by = "Id_SNP")
+dim(M_neu_hmp)
+colnames(M_neu_hmp)[1] <- "rs"
+#write.table(as.data.frame(M_neu_hmp), "Genotyping_file/M_neu.hmp.txt", sep = "\t", row.names = FALSE)
+
+##
+head(NM_hmp_t3)[,1:5]
+NM_hmp_t3_out <- rbind.fill(NM_hmp_t3, ID_outlier2)
+head(NM_hmp_t3_out)[,1:5]
+tail(NM_hmp_t3_out)[,1:5]
+dim(NM_hmp_t3_out)
+NM_hmp_neu <- NM_hmp_t3_out[!(duplicated(NM_hmp_t3_out$ID)|duplicated(NM_hmp_t3_out$ID, fromLast=TRUE)),]
+dim(NM_hmp_neu)
+NM_hmp_neu <- NM_hmp_neu[,2:554]
+
+NM_hmp_neu2 <- NM_hmp_neu
+NM_hmp_neu2$Id_SNP <- gsub(".FJ", "|FJ", NM_hmp_neu2$Id_SNP)
+NM_neu_hmp <- merge(Ahal_hmp[,1:11], NM_hmp_neu2, by = "Id_SNP")
+dim(NM_neu_hmp)
+colnames(NM_neu_hmp)[1] <- "rs"
+#write.table(as.data.frame(NM_neu_hmp), "Genotyping_file/NM_neu.hmp.txt", sep = "\t", row.names = FALSE)
+
+
+
+#########################
+#Transpose the data frames for further analysis
+header.true <- function(df) {
+  df[] <- lapply(df, as.character)
+colnames(df) <- as.character(df[1, ])
+df <- df[-1 ,]
+}
+
+
+M_Neu0 <- t(M_hmp_neu)
+M_Neu0 <- as.data.frame(M_Neu0)
+head(M_Neu0)[,1:2]
+M_Neu00 <- setDT(as.data.frame(M_Neu0), keep.rownames = TRUE)[]
+head(M_Neu00)[,1:8]
+str(M_Neu00)
+M_Neu <- header.true(M_Neu00)
+head(M_Neu)[,1:5]
+dim(M_Neu)
+colnames(M_Neu)[1] <- "Sample"
+
+
+M_Out0 <- t(M_hmp_out)
+M_Out0 <- as.data.frame(M_Out0)
+head(M_Out0)[,1:2]
+M_Out00 <- setDT(as.data.frame(M_Out0), keep.rownames = TRUE)[]
+head(M_Out00)[,1:8]
+str(M_Out00)
+M_Out <- header.true(M_Out00)
+head(M_Out)[,1:5]
+dim(M_Out)
+colnames(M_Out)[1] <- "Sample"
+
+NM_Neu0 <- t(NM_hmp_neu)
+NM_Neu0 <- as.data.frame(NM_Neu0)
+head(NM_Neu0)[,1:2]
+NM_Neu00 <- setDT(as.data.frame(NM_Neu0), keep.rownames = TRUE)[]
+head(NM_Neu00)[,1:8]
+str(NM_Neu00)
+NM_Neu <- header.true(NM_Neu00)
+head(NM_Neu)[,1:5]
+dim(NM_Neu)
+colnames(NM_Neu)[1] <- "Sample"
+
+NM_Out0 <- t(NM_hmp_out)
+NM_Out0 <- as.data.frame(NM_Out0)
+head(NM_Out0)[,1:2]
+NM_Out00 <- setDT(as.data.frame(NM_Out0), keep.rownames = TRUE)[]
+head(NM_Out00)[,1:8]
+str(NM_Out00)
+NM_Out <- header.true(NM_Out00)
+head(NM_Out)[,1:5]
+dim(NM_Out)
+colnames(NM_Out)[1] <- "Sample"
+
+##########################################################################################
+### Basic statistics for M
+###############
+M_Neu2 <- merge(Popinfo2, M_Neu, by = "Sample")
+M_Out2 <- merge(Popinfo2, M_Out, by = "Sample")
+NM_Neu2 <- merge(Popinfo2, NM_Neu, by = "Sample")
+NM_Out2 <- merge(Popinfo2, NM_Out, by = "Sample")
+
+
+##M-neutral loci
+ind <- as.character(M_Neu2$Sample)
+population <- as.character(M_Neu2$Site) # use later with adegenet (population labels)
+soiltype <- M_Neu2$Site_ContType
+dim(M_Neu2) # xxx individuals x xxxxx SNPs
+
+locus2M_Neu2 <- M_Neu2[, 6:10727] 
+colnames(locus2M_Neu2) <- gsub("\\.", "_", colnames(locus2M_Neu2)) # locus names can't have "."
+M_Neu21 <- df2genind(locus2M_Neu2, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(M_Neu21) 
+
+M_Neu22 <- genind2hierfstat(M_Neu21)
+
+basic.stats(M_Neu21)
+
+#boxplot(basic.stats(M_Neu21)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+#wc(M_Neu21)
+
+
+
+
+##M-outlier loci
+ind <- as.character(M_Out2$Sample)
+population <- as.character(M_Out2$Site) # use later with adegenet (population labels)
+soiltype <- M_Out2$Site_ContType
+dim(M_Out2) # xxx individuals x xxxxx SNPs
+
+locus2M_Out2 <- M_Out2[, 6:1844] 
+colnames(locus2M_Out2) <- gsub("\\.", "_", colnames(locus2M_Out2)) # locus names can't have "."
+M_Out21 <- df2genind(locus2M_Out2, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(M_Out21) 
+
+M_Out22 <- genind2hierfstat(M_Out21)
+
+basic.stats(M_Out21)
+
+#boxplot(basic.stats(M_Out21)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+#wc(M_Out21)
+
+##NM-neutral loci
+ind <- as.character(NM_Neu2$Sample)
+population <- as.character(NM_Neu2$Site) # use later with adegenet (population labels)
+soiltype <- NM_Neu2$Site_ContType
+dim(NM_Neu2) # xxx individuals x xxxxx SNPs
+
+locus2NM_Neu2 <- NM_Neu2[, 6:10727] 
+colnames(locus2NM_Neu2) <- gsub("\\.", "_", colnames(locus2NM_Neu2)) # locus names can't have "."
+NM_Neu21 <- df2genind(locus2NM_Neu2, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(NM_Neu21) 
+
+NM_Neu22 <- genind2hierfstat(NM_Neu21)
+
+basic.stats(NM_Neu21)
+
+#boxplot(basic.stats(NM_Neu21)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+#wc(NM_Neu21)
+
+
+##NM-outlier loci
+ind <- as.character(NM_Out2$Sample)
+population <- as.character(NM_Out2$Site) # use later with adegenet (population labels)
+soiltype <- NM_Out2$Site_ContType
+dim(NM_Out2) # xxx individuals x xxxxx SNPs
+
+locus2NM_Out2 <- NM_Out2[, 6:1844] 
+colnames(locus2NM_Out2) <- gsub("\\.", "_", colnames(locus2NM_Out2)) # locus names can't have "."
+NM_Out21 <- df2genind(locus2NM_Out2, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(NM_Out21) 
+
+NM_Out22 <- genind2hierfstat(NM_Out21)
+
+basic.stats(NM_Out21)
+
+#boxplot(basic.stats(NM_Out21)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+#wc(NM_Out21)
+
+
+
+###### Merge each data and plot together with statistical test
+
+M_Neubs <- basic.stats(M_Neu21)$perloc[,1:10]
+M_Outbs <- basic.stats(M_Out21)$perloc[,1:10]
+NM_Neubs <- basic.stats(NM_Neu21)$perloc[,1:10]
+NM_Outbs <- basic.stats(NM_Out21)$perloc[,1:10]
+
+dim(M_Neubs)
+dim(M_Outbs)
+dim(NM_Neubs)
+dim(NM_Outbs)
+
+M_Neubs$Type <- "M_Neu" 
+M_Outbs$Type <- "M_Out" 
+NM_Neubs$Type <- "NM_Neu" 
+NM_Outbs$Type <- "NM_Out"
+
+M_Neubs$Type <- as.factor(M_Neubs$Type)
+M_Outbs$Type <- as.factor(M_Outbs$Type)
+NM_Neubs$Type <- as.factor(NM_Neubs$Type)
+NM_Outbs$Type <- as.factor(NM_Outbs$Type)
+
+#install.packages("rowr")
+library(rowr)
+
+FisALL <- cbind.fill(M_Neubs$Fis, M_Outbs$Fis, NM_Neubs$Fis, NM_Outbs$Fis, fill = NA )
+colnames(FisALL) <- c("M_Neu", "M_Out", "NM_Neu", "NM_Out" )
+boxplot(FisALL, col = c("lightpink", "red2", "lightskyblue", "navy"), 
+        main = "Fis within M and NM population",
+        ylim=c(-1.15, 1.18),
+        ylab= "Fis")
+tail(FisALL)
+
+
+FstALL <- cbind.fill(M_Neubs$Fst, M_Outbs$Fst, NM_Neubs$Fst, NM_Outbs$Fst, fill = NA )
+colnames(FstALL) <- c("M_Neu", "M_Out", "NM_Neu", "NM_Out" )
+boxplot(FstALL, col = c("lightpink", "red2", "lightskyblue", "navy"), 
+        main = "Fst within M and NM population",
+        ylim=c(-0.2, 1.13),
+        ylab="Fst")
+
+tail(FstALL)
+
+
+HsALL <- cbind.fill(M_Neubs$Hs, M_Outbs$Hs, NM_Neubs$Hs, NM_Outbs$Hs, fill = NA )
+colnames(HsALL) <- c("M_Neu", "M_Out", "NM_Neu", "NM_Out" )
+boxplot(HsALL, col = c("lightpink", "red2", "lightskyblue", "navy"), 
+        main = "Hs within M and NM population",
+        ylim= c(-0.02, 0.55),
+        ylab = "Hs")
+
+
+#Statistics & violin plot
+FstaticALL <- rbind(M_Neubs, M_Outbs, NM_Neubs, NM_Outbs)
+dim(FstaticALL)
+tail(FstaticALL)
+FstaticALL$soil <- substr(FstaticALL$Type, 0,1)
+FstaticALL$loci <- str_sub(FstaticALL$Type, -3, -1)
+head(FstaticALL)
+
+#install.packages("agricolae")
+library(agricolae)
+library(FSA)
+library(car)
+library(stats)
+library(ggplot2)
+
+FstaticALL_Ho.aov <- aov( Ho ~ Type, data = FstaticALL)
+summary(FstaticALL_Ho.aov)
+FstaticALL_Ho_res <- HSD.test(FstaticALL_Ho.aov, "Type", group=TRUE)
+FstaticALL_Ho_res$groups
+
+leveneTest(Ho ~ Type, data = FstaticALL)
+
+FstaticALL_Ho_post <- dunnTest(Ho ~ Type, data = FstaticALL, method="bh")#Non-parametric KW test
+FstaticALL_Ho_post
+
+Ho_Kru_Ho <- kruskal(FstaticALL$Ho, FstaticALL$Type, p.adj= "BH", alpha = 0.001)
+Ho_Kru_Ho$groups
+#
+FstaticALL_Ht.aov <- aov( Ht ~ Type, data = FstaticALL)
+summary(FstaticALL_Ht.aov)
+FstaticALL_Ht_res <- HSD.test(FstaticALL_Ht.aov, "Type", group=TRUE)
+FstaticALL_Ht_res$groups
+
+leveneTest(Ht ~ Type, data = FstaticALL)
+
+FstaticALL_Ht_post <- dunnTest(Ht ~ Type, data = FstaticALL, metHtd="bh")#Non-parametric KW test
+FstaticALL_Ht_post
+
+Ht_Kru_Ht <- kruskal(FstaticALL$Ht, FstaticALL$Type, p.adj= "BH", alpha = 0.001)
+Ht_Kru_Ht$groups
+
+
+
+#
+FstaticALL_Hs.aov <- aov( Hs ~ Type, data = FstaticALL)
+summary(FstaticALL_Hs.aov)
+FstaticALL_Hs_res <- HSD.test(FstaticALL_Hs.aov, "Type", group=TRUE)
+FstaticALL_Hs_res$groups
+
+leveneTest(Hs ~ Type, data = FstaticALL)
+shapiro.test(FstaticALL_Hs.aov$residuals) #Normality?
+
+FstaticALL_Hs_post <- dunnTest(Hs ~ Type, data = FstaticALL, method="bh")#Non-parametric KW test
+FstaticALL_Hs_post
+
+Hs_Kru_Hs <- kruskal(FstaticALL$Hs, FstaticALL$Type, p.adj= "BH", alpha = 0.001)
+Hs_Kru_Hs$groups
+
+Hs_vi <- ggplot(FstaticALL, aes(x=Type, y=Hs, fill=loci)) +
+      geom_violin(aes(color = soil), size =1, trim = FALSE, position=position_dodge(0.9)) +
+      ylim(c(-0.05, 0.6)) + xlab("")+
+      stat_summary(fun.y=mean, geom="point", size=2, color = "black") +
+      theme_bw() +
+      scale_fill_manual(values=c("grey95", "grey40", "grey95", "grey40")) +
+      scale_color_manual(values = c("red", "blue"))
+Hs_vi
+
+Hs <- ggplot(FstaticALL, aes(x=Type, y=Hs, fill=Type)) +
+      geom_boxplot( position=position_dodge(0.9)) +
+      ylim(c(-0.01, 0.55)) + xlab("")+
+      stat_summary(fun.y=mean, geom="point", shape=21, color="black", fill="white", size = 3) +
+      theme_bw() +
+      scale_fill_manual(values=c("lightcoral", "red3", "steelblue1", "navyblue")) +
+      theme(legend.position = "none")  +
+      theme(axis.text = element_text(size = 12), axis.title=element_text(size=14))
+      
+Hs
+
+#
+
+FstaticALL_Fis.aov <- aov( Fis ~ Type, data = FstaticALL)
+summary(FstaticALL_Fis.aov)
+FstaticALL_Fis_res <- HSD.test(FstaticALL_Fis.aov, "Type", group=TRUE)
+FstaticALL_Fis_res$groups
+
+leveneTest(Fis ~ Type, data = FstaticALL)
+shapiro.test(FstaticALL_Fis.aov$residuals) #Normality?
+
+Kru_Fis <- kruskal(FstaticALL$Fis, FstaticALL$Type, p.adj= "BH", alpha =0.001)
+Kru_Fis$groups
+
+
+Fis_vi <- ggplot(FstaticALL, aes(x=Type, y=Fis, fill=loci)) +
+      geom_violin(aes(color = soil), size =1, trim = FALSE, position=position_dodge(0.9)) +
+      ylim(c(-1.2, 1.2)) + xlab("")+
+      stat_summary(fun.y=mean, geom="point", size=2, color = "black") +
+      theme_bw() +
+      scale_fill_manual(values=c("grey95", "grey40", "grey95", "grey40")) +
+      scale_color_manual(values = c("red", "blue"))
+Fis_vi
+
+Fis <- ggplot(FstaticALL, aes(x=Type, y=Fis, fill=Type)) +
+      geom_boxplot( position=position_dodge(0.9)) +
+      ylim(c(-1.05, 1.1)) + xlab("")+
+      stat_summary(fun.y=mean, geom="point", shape=21, color="black", fill="white", size = 3) +
+      theme_bw() +
+      scale_fill_manual(values=c("lightcoral", "red3", "steelblue1", "navyblue")) +
+      theme(legend.position = "none")  +
+      theme(axis.text = element_text(size = 12), axis.title=element_text(size=14))
+      
+Fis
+
+
+FstaticALL_Fst.aov <- aov( Fst ~ Type, data = FstaticALL)
+summary(FstaticALL_Fst.aov)
+FstaticALL_Fst_res <- HSD.test(FstaticALL_Fst.aov, "Type", group=TRUE)
+FstaticALL_Fst_res$groups
+
+leveneTest(Fst ~ Type, data = FstaticALL)
+shapiro.test(FstaticALL_Fst.aov$residuals) #Normality?
+
+
+Hs_Kru_Fst <- kruskal(FstaticALL$Fst, FstaticALL$Type,p.adj= "BH", alpha = 0.001)
+Hs_Kru_Fst$groups
+
+Fst_vi <- ggplot(FstaticALL, aes(x=Type, y=Fst, fill=loci)) +
+      geom_violin(aes(color = soil), size =1, trim = FALSE, position=position_dodge(0.9)) +
+      ylim(c(-0.2, 1.1)) + xlab("")+
+      stat_summary(fun.y=mean, geom="point", size=2, color = "black") +
+      theme_bw() +
+      scale_fill_manual(values=c("grey95", "grey40", "grey95", "grey40")) +
+      scale_color_manual(values = c("red", "blue"))
+Fst_vi
+
+Fst <- ggplot(FstaticALL, aes(x=Type, y=Fst, fill=Type)) +
+      geom_boxplot( position=position_dodge(0.9)) +
+      ylim(c(-0.1, 1.1)) + xlab("")+
+      stat_summary(fun.y=mean, geom="point", shape=21, color="black", fill="white", size = 3) +
+      theme_bw() +
+      scale_fill_manual(values=c("lightcoral", "red3", "steelblue1", "navyblue")) +
+      theme(legend.position = "none")  +
+      theme(axis.text = element_text(size = 12), axis.title=element_text(size=14))
+      
+Fst
+
+library(ggpubr)
+FstatsMNM <- ggarrange(Hs, Fis, Fst,
+                       ncol = 3, nrow = 1,
+                       common.legend = TRUE, legend = "bottom")
+FstatsMNM
+
+```
+
+#Fis only for neutral loci
+```{r}
+setwd("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/Sequential growth test_Hydroponics/Statistical analysis/Heterozygosity/pcadapt")
+
+M_Neu_stat <- basic.stats(M_Neu21)
+
+NM_Neu_stat <- basic.stats(NM_Neu21)
+
+#write.table(as.data.frame(M_Neu_stat$Fis), "Fis_M_Neu.txt", sep = "\t", row.names = FALSE)
+#write.table(as.data.frame(NM_Neu_stat$Fis), "Fis_NM_Neu.txt", sep = "\t", row.names = FALSE)
+
+library(ggplot2)
+#Extract Fis per each site
+FisNA_Neu <- read.delim("Fis_Neu_eachSite.txt", row.names = 1)
+head(FisNA_Neu)
+#Fis_Neu_df <- as.data.frame(t(FisNA_Neu))
+
+hist(FisNA_Neu$Fis)
+ggplot(FisNA_Neu, aes(x=Fis)) + 
+    geom_histogram(bins=50, aes(fill = ..count..) ) +
+    theme_bw() +
+    labs(x="Fis (Inbreeding coefficient)", y="Frequency") +
+    geom_vline(aes(xintercept = mean(Fis)),col='red',size=1) +
+    geom_text(aes(0,mean(Fis),label = mean(Fis),vjust=-25, hjust = -0.2))
+
+Selfing_Neu_df <- replace(FisNA_Neu[,2], FisNA_Neu[,2] < 0, 0)
+Selfing_Neu_df <- as.data.frame(Selfing_Neu_df)
+head(Selfing_Neu_df)
+
+ggplot(Selfing_Neu_df, aes(x=Selfing_Neu_df)) + 
+    geom_histogram(bins=20, aes(fill = ..count..) ) +
+    theme_bw() +
+    labs(x="Selfing rate (%)", y="Frequency") +
+    geom_vline(aes(xintercept = mean(Selfing_Neu_df)),col='red',size=1) +
+    geom_text(aes(0,mean(Selfing_Neu_df),label = mean(Selfing_Neu_df),vjust=-15, hjust = -0.75))
+ 
+
+```
+
+
+#Neu/Out and M/NM IBD
+```{r}
+setwd("C:/Users/Justin/OneDrive - rub.de/PhD/Gwonjin/Experiment/Result/Sequential growth test_Hydroponics/Statistical analysis/Heterozygosity")
+
+library(vcfR)
+library(adegenet)
+library(adegraphics)
+library(pegas)
+library(StAMPP)
+library(lattice)
+library(gplots)
+library(ape)
+library(ggmap) 
+
+vcfM_Neu <- read.vcfR("pcadapt/Genotyping_file/M_neu.vcf")
+vcfM_Out <- read.vcfR("pcadapt/Genotyping_file/M_out.vcf")
+vcfNM_Neu <- read.vcfR("pcadapt/Genotyping_file/NM_neu.vcf")
+vcfNM_Out <- read.vcfR("pcadapt/Genotyping_file/NM_out.vcf")
+
+aa.genlightM_Neu <- vcfR2genlight(vcfM_Neu, n.cores=1)
+locNames(aa.genlightM_Neu) <- paste(vcfM_Neu@fix[,1],vcfM_Neu@fix[,2],sep="_")
+pop(aa.genlightM_Neu)<-substr(indNames(aa.genlightM_Neu),1,4) 
+
+aa.genlightM_Out <- vcfR2genlight(vcfM_Out, n.cores=1)
+locNames(aa.genlightM_Out) <- paste(vcfM_Out@fix[,1],vcfM_Out@fix[,2],sep="_")
+pop(aa.genlightM_Out)<-substr(indNames(aa.genlightM_Out),1,4) 
+
+aa.genlightNM_Neu <- vcfR2genlight(vcfNM_Neu, n.cores=1)
+locNames(aa.genlightNM_Neu) <- paste(vcfNM_Neu@fix[,1],vcfNM_Neu@fix[,2],sep="_")
+pop(aa.genlightNM_Neu)<-substr(indNames(aa.genlightNM_Neu),1,4) 
+
+aa.genlightNM_Out <- vcfR2genlight(vcfNM_Out, n.cores=1)
+locNames(aa.genlightNM_Out) <- paste(vcfNM_Out@fix[,1],vcfNM_Out@fix[,2],sep="_")
+pop(aa.genlightNM_Out)<-substr(indNames(aa.genlightNM_Out),1,4) 
+
+aa.D.indM_Neu <- stamppNeisD(aa.genlightM_Neu, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indNM_Neu <- stamppNeisD(aa.genlightNM_Neu, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indM_Out <- stamppNeisD(aa.genlightM_Out, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indNM_Out <- stamppNeisD(aa.genlightNM_Out, pop = FALSE) # Nei's 1972 distance between indivs
+
+colnames(aa.D.indM_Neu) <- rownames(aa.D.indM_Neu)
+aa.D.ind.distM_NeuM_Neu<-as.dist(aa.D.indM_Neu, diag=T)
+attr(aa.D.ind.distM_NeuM_Neu, "Labels")<-rownames(aa.D.indM_Neu)
+
+colnames(aa.D.indNM_Neu) <- rownames(aa.D.indNM_Neu)
+aa.D.ind.distNM_NeuNM_Neu<-as.dist(aa.D.indNM_Neu, diag=T)
+attr(aa.D.ind.distNM_NeuNM_Neu, "Labels")<-rownames(aa.D.indNM_Neu)
+
+
+colnames(aa.D.indM_Out) <- rownames(aa.D.indM_Out)
+aa.D.ind.distM_OutM_Out<-as.dist(aa.D.indM_Out, diag=T)
+attr(aa.D.ind.distM_OutM_Out, "Labels")<-rownames(aa.D.indM_Out)
+
+colnames(aa.D.indNM_Out) <- rownames(aa.D.indNM_Out)
+aa.D.ind.distNM_OutNM_Out<-as.dist(aa.D.indNM_Out, diag=T)
+attr(aa.D.ind.distNM_OutNM_Out, "Labels")<-rownames(aa.D.indNM_Out)
+
+#aa.D.ind.distMNM<-as.dist(rbind(aa.D.indNM, aa.D.indNM), diag=T) #dist between M and NM
+#attr(aa.D.ind.distMNM, "Labels")<-rownames(aa.D.indNM)
+library(geosphere)
+
+coordsM <- read.delim ("Coordinates_M.txt") # coordinates file for M pops
+coordsNM <- read.delim ("Coordinates_NM.txt") # coordinates file for NM pops
+
+xy.coords.onlyM<- subset(coordsM, select=c("Latitude","Longitude"))
+DgeoM <- dist(xy.coords.onlyM)
+head(DgeoM)
+
+
+xy.coords.onlyNM<- subset(coordsNM, select=c("Latitude","Longitude"))
+DgeoNM <- dist(xy.coords.onlyNM)
+
+DgeoMNM <- dist(rbind(xy.coords.onlyM, xy.coords.onlyNM)) # dist geo between M and NM
+
+IBDMM_Neu <- mantel.randtest(DgeoM,aa.D.ind.distM_NeuM_Neu, nre)
+IBDMM_Neu
+
+IBDNMNM_Neu <- mantel.randtest(DgeoNM,aa.D.ind.distNM_NeuNM_Neu)
+IBDNMNM_Neu
+
+
+IBDMM_Out <- mantel.randtest(DgeoM,aa.D.ind.distM_OutM_Out)
+IBDMM_Out
+
+IBDNMNM_Out <- mantel.randtest(DgeoNM,aa.D.ind.distNM_OutNM_Out)
+IBDNMNM_Out
+
+plot(DgeoM, aa.D.ind.distM_NeuM_Neu, xlim=range(DgeoM, DgeoNM), ylim=range(aa.D.ind.distM_NeuM_Neu, aa.D.ind.distNM_NeuNM_Neu), col = rgb(red = 1, green = 0, blue = 0, alpha = 0.5), cex=0.5, main = "IBD of M_Neu and NM_Neu pairs", xlab = "Geographic distance", ylab = "Genetic distance") 
+points(DgeoNM, aa.D.ind.distNM_NeuNM_Neu, col = rgb(red = 0, green = 0, blue = 1, alpha = 0.08), cex=0.5) 
+abline(lm(aa.D.ind.distNM_NeuNM_Neu~DgeoNM), col= "blue")
+abline(lm(aa.D.ind.distM_NeuM_Neu~DgeoM), col = "red") 
+
+
+plot(DgeoM, aa.D.ind.distM_OutM_Out, xlim=range(DgeoM, DgeoNM), ylim=range(aa.D.ind.distM_OutM_Out, aa.D.ind.distNM_OutNM_Out), col = rgb(red = 1, green = 0, blue = 0, alpha = 0.5), cex=0.5, main = "IBD of M_Out and NM_Out pairs", xlab = "Geographic distance", ylab = "Genetic distance") 
+points(DgeoNM, aa.D.ind.distNM_OutNM_Out, col = rgb(red = 0, green = 0, blue = 1, alpha = 0.08), cex=0.5) 
+abline(lm(aa.D.ind.distNM_OutNM_Out~DgeoNM), col= "blue")
+abline(lm(aa.D.ind.distM_OutM_Out~DgeoM), col = "red") 
+
+#With density for plot
+library(MASS)
+densM_NeuM_Neu <- kde2d(DgeoM,aa.D.ind.distM_NeuM_Neu, n=250, lims=c(-1, 25, 0, 0.20))
+myPal <- colorRampPalette(c("white","blue","gold", "orange", "red"))
+plot(DgeoM, aa.D.ind.distM_NeuM_Neu, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densM_NeuM_Neu, col=transp(myPal(250),.7), add=TRUE)
+abline(lm(aa.D.ind.distM_NeuM_Neu~DgeoM))
+title("IBD of M_Neu pairs") 
+
+
+densNM_NeuNM_Neu <- kde2d(DgeoNM,aa.D.ind.distNM_NeuNM_Neu, n=552, lims=c(-1, 25, 0, 0.20))
+plot(DgeoNM, aa.D.ind.distNM_NeuNM_Neu, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densNM_NeuNM_Neu, col=transp(myPal(552),.7), add=TRUE)
+abline(lm(aa.D.ind.distNM_NeuNM_Neu~DgeoNM))
+title("IBD of NM_Neu pairs") 
+
+
+densM_OutM_Out <- kde2d(DgeoM,aa.D.ind.distM_OutM_Out, n=250, lims=c(-1, 25, 0, 0.20))
+myPal <- colorRampPalette(c("white","blue","gold", "orange", "red"))
+plot(DgeoM, aa.D.ind.distM_OutM_Out, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densM_OutM_Out, col=transp(myPal(250),.7), add=TRUE)
+abline(lm(aa.D.ind.distM_OutM_Out~DgeoM))
+title("IBD of M_Out pairs") 
+
+
+densNM_OutNM_Out <- kde2d(DgeoNM,aa.D.ind.distNM_OutNM_Out, n=552, lims=c(-1, 25, 0, 0.20))
+plot(DgeoNM, aa.D.ind.distNM_OutNM_Out, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densNM_OutNM_Out, col=transp(myPal(552),.7), add=TRUE)
+abline(lm(aa.D.ind.distNM_OutNM_Out~DgeoNM))
+title("IBD of NM_Out pairs") 
+
+
+#Boxplot of M and NM's genetic distance
+
+#par(mfrow=c(1,2))
+
+boxplot(aa.D.ind.distM_NeuM_Neu, aa.D.ind.distNM_NeuNM_Neu, col = c("red", "blue"), xlab = "Population pairs", ylab= "Genetic distance", names = c("M_Neu pairs", "NM_Neu pairs"))
+
+boxplot(DgeoM, DgeoNM, col = c("red", "blue"), xlab = "Population pairs", ylab= "Geographic distance", names = c("M_Neu pairs", "NM_Neu pairs"))
+
+
+wilcox.test(aa.D.ind.distM_NeuM_Neu, aa.D.ind.distNM_NeuNM_Neu)
+wilcox.test(DgeoM, DgeoNM)
+
+
+boxplot(aa.D.ind.distM_OutM_Out, aa.D.ind.distNM_OutNM_Out, col = c("red", "blue"), xlab = "Population pairs", ylab= "Genetic distance", names = c("M_Out pairs", "NM_Out pairs"))
+
+boxplot(DgeoM, DgeoNM, col = c("red", "blue"), xlab = "Population pairs", ylab= "Geographic distance", names = c("M_Out pairs", "NM_Out pairs"))
+
+
+wilcox.test(aa.D.ind.distM_OutM_Out, aa.D.ind.distNM_OutNM_Out)
+wilcox.test(DgeoM, DgeoNM)
+
+# Merge plot
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoM, aa.D.ind.distM_NeuM_Neu, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densM_NeuM_Neu, col=transp(myPal(250),.7), add=TRUE)
+abline(lm(aa.D.ind.distM_NeuM_Neu~DgeoM))
+par(fig=c(0,0.9,0.5,1), new=TRUE)
+boxplot(DgeoM, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distM_NeuM_Neu, axes=FALSE)
+mtext("IBD of M_Neu pairs", side=3, outer=TRUE, line=-3)
+
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoNM, aa.D.ind.distNM_NeuNM_Neu, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densNM_NeuNM_Neu, col=transp(myPal(552),.7), add=TRUE)
+abline(lm(aa.D.ind.distNM_NeuNM_Neu~DgeoNM))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoNM, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distNM_NeuNM_Neu, axes=FALSE)
+mtext("IBD of NM_Neu pairs", side=3, outer=TRUE, line=-3)
+
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoM, aa.D.ind.distM_OutM_Out, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densM_OutM_Out, col=transp(myPal(250),.7), add=TRUE)
+abline(lm(aa.D.ind.distM_OutM_Out~DgeoM))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoM, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distM_OutM_Out, axes=FALSE)
+mtext("IBD of M_Out pairs", side=3, outer=TRUE, line=-3)
+
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoNM, aa.D.ind.distNM_OutNM_Out, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densNM_OutNM_Out, col=transp(myPal(552),.7), add=TRUE)
+abline(lm(aa.D.ind.distNM_OutNM_Out~DgeoNM))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoNM, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distNM_OutNM_Out, axes=FALSE)
+mtext("IBD of NM_Out pairs", side=3, outer=TRUE, line=-3)
+
+# M/NM: only 2 plot but with 2 different ablines for neu/out
+library(ggthemes)
+library(grid)
+library(ggpubr)
+library(ggplot2)
+library(reshape2)
+require(cowplot)
+library(hexbin)
+# M pairs
+dfM <- melt(as.matrix(DgeoM), varnames = c("row", "col"))
+dfM[dfM$row > dfM$col,]
+dfM1 <- melt(as.matrix(aa.D.ind.distMM), varnames = c("row", "col"))
+dfM1[dfM1$row > dfM1$col,]
+dfM2 <- data.frame(x = dfM$value , y = dfM1$value,
+  dm = densCols(dfM$value, dfM1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LMM <- lm(aa.D.ind.distMM~DgeoM)
+coef.M <- coef(LMM)
+
+LMM_Neu <- lm(aa.D.ind.distM_NeuM_Neu~DgeoM)
+coef.M_Neu <- coef(LMM_Neu)
+
+LMM_Out <- lm(aa.D.ind.distM_OutM_Out~DgeoM)
+coef.M_Out <- coef(LMM_Out)
+
+am <- ggplot(dfM2, aes(dfM$value, dfM1$value, col = dm)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.M[1],slope=coef.M[2]) +
+    geom_abline(intercept=coef.M_Neu[1],slope=coef.M_Neu[2], color = "green4") +
+    geom_abline(intercept=coef.M_Out[1],slope=coef.M_Out[2], color = "darkorange1")
+
+bm <- ggplot (dfM2, aes(x="", y=dfM$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+cm <- ggplot (dfM2, aes("", dfM1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+Mrange <- ggarrange(bm, NULL, am, cm, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1.2), heights = c(1, 5),
+          common.legend = TRUE)
+
+F3 <- annotate_figure(Mrange, top=text_grob("IBD of M pairs", face = "bold", size = 15))
+F3
+
+# NM pairs
+dfNM <- melt(as.matrix(DgeoNM), varnames = c("row", "col"))
+dfNM[dfNM$row > dfNM$col,]
+dfNM1 <- melt(as.matrix(aa.D.ind.distNMNM), varnames = c("row", "col"))
+dfNM1[dfNM1$row > dfNM1$col,]
+dfNM2 <- data.frame(x = dfNM$value , y = dfNM1$value,
+  dnm = densCols(dfNM$value, dfNM1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LMNM <- lm(aa.D.ind.distNMNM~DgeoNM)
+coef.NM <- coef(LMNM)
+
+
+LNMNM_Neu <- lm(aa.D.ind.distNM_NeuNM_Neu~DgeoNM)
+coef.NM_Neu <- coef(LNMNM_Neu)
+
+LNMNM_Out <- lm(aa.D.ind.distNM_OutNM_Out~DgeoNM)
+coef.NM_Out <- coef(LNMNM_Out)
+
+
+
+anm <- ggplot(dfNM2, aes(dfNM$value, dfNM1$value, col = dnm)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.1) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.NM[1],slope=coef.NM[2]) +
+    geom_abline(intercept=coef.NM_Neu[1],slope=coef.NM_Neu[2], color = "green4") +
+    geom_abline(intercept=coef.NM_Out[1],slope=coef.NM_Out[2], color = "darkorange1")
+
+
+bnm <- ggplot(dfNM2, aes(x="", y=dfNM$value)) +
+    geom_boxplot() + coord_flip() +
+    theme(plot.margin=unit(c(0,0,-100,0), "cm")) +
+    theme_transparent()
+
+cnm <- ggplot (dfNM2, aes("", dfNM1$value)) +
+    geom_boxplot() +
+    theme_transparent()
+
+NMrange <- ggarrange(bnm, NULL, anm, cnm, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1.2), heights = c(1, 5),
+          common.legend = TRUE)
+
+F4 <- annotate_figure(NMrange, top=text_grob("IBD of NM pairs", face = "bold", size = 15))
+F4
+
+#install.packages("gridExtra")
+library(gridExtra)
+
+#grid.arrange(F3, F4, ncol =2)
+ggarrange(F3, NULL, F4, ncol=3, align = "hv", widths = c(1,0.2,1))
+
+# Function to plot color bar
+color.bar <- function(lut, min, max=-min, nticks=11, ticks=seq(min, max, len=nticks), title='') {
+    scale = (length(lut)-1)/(max-min)
+
+    dev.new(width=1.75, height=5)
+    plot(c(0,10), c(min,max), type='n', bty='n', xaxt='n', xlab='', yaxt='n', ylab='', main=title)
+    axis(2, ticks, las=1)
+    for (i in 1:(length(lut)-1)) {
+    	y = (i-1)/scale + min
+    	rect(0,y,10,y+1/scale, col=lut[i], border=NA)
+    }	
+}    
+lut = rev(rainbow(100, start=rgb2hsv(col2rgb('red'))[1], end=rgb2hsv(col2rgb('blue'))[1]))
+colbar = color.bar(lut, 0, 1)
+
+
+```
+
+
+
+```{r}
+
+##########################################################################################
+###IBD within genetic clusters
+vcfCA <- read.vcfR("Ahal_0.15_Only_CA.vcf")
+vcfEA <- read.vcfR("Ahal_0.15_Only_EA.vcf")
+vcfWA <- read.vcfR("Ahal_0.15_Only_WA.vcf")
+vcfCE <- read.vcfR("Ahal_0.15_Only_CE.vcf")
+vcfEE <- read.vcfR("Ahal_0.15_Only_EE.vcf")
+vcfRO <- read.vcfR("Ahal_0.15_Only_RO.vcf")
+
+
+aa.genlightCA <- vcfR2genlight(vcfCA, n.cores=1)
+locNames(aa.genlightCA) <- paste(vcfCA@fix[,1],vcfCA@fix[,2],sep="_")
+pop(aa.genlightCA)<-substr(indNames(aa.genlightCA),1,4) 
+
+aa.genlightEA <- vcfR2genlight(vcfEA, n.cores=1)
+locNames(aa.genlightEA) <- paste(vcfEA@fix[,1],vcfEA@fix[,2],sep="_")
+pop(aa.genlightEA)<-substr(indNames(aa.genlightEA),1,4)
+
+aa.genlightWA <- vcfR2genlight(vcfWA, n.cores=1)
+locNames(aa.genlightWA) <- paste(vcfWA@fix[,1],vcfWA@fix[,2],sep="_")
+pop(aa.genlightWA)<-substr(indNames(aa.genlightWA),1,4)
+
+aa.genlightCE <- vcfR2genlight(vcfCE, n.cores=1)
+locNames(aa.genlightCE) <- paste(vcfCE@fix[,1],vcfCE@fix[,2],sep="_")
+pop(aa.genlightCE)<-substr(indNames(aa.genlightCE),1,4)
+
+aa.genlightEE <- vcfR2genlight(vcfEE, n.cores=1)
+locNames(aa.genlightEE) <- paste(vcfEE@fix[,1],vcfEE@fix[,2],sep="_")
+pop(aa.genlightEE)<-substr(indNames(aa.genlightEE),1,4)
+
+aa.genlightRO <- vcfR2genlight(vcfRO, n.cores=1)
+locNames(aa.genlightRO) <- paste(vcfRO@fix[,1],vcfRO@fix[,2],sep="_")
+pop(aa.genlightRO)<-substr(indNames(aa.genlightRO),1,4)
+
+library(StAMPP)
+aa.D.indCA <- stamppNeisD(aa.genlightCA, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indEA <- stamppNeisD(aa.genlightEA, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indWA <- stamppNeisD(aa.genlightWA, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indCE <- stamppNeisD(aa.genlightCE, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indEE <- stamppNeisD(aa.genlightEE, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indRO <- stamppNeisD(aa.genlightRO, pop = FALSE) # Nei's 1972 distance between indivs
+
+colnames(aa.D.indCA) <- rownames(aa.D.indCA)
+aa.D.ind.distCA<-as.dist(aa.D.indCA, diag=T)
+attr(aa.D.ind.distCA, "Labels")<-rownames(aa.D.indCA)
+
+colnames(aa.D.indEA) <- rownames(aa.D.indEA)
+aa.D.ind.distEA<-as.dist(aa.D.indEA, diag=T)
+attr(aa.D.ind.distEA, "Labels")<-rownames(aa.D.indEA)
+
+colnames(aa.D.indWA) <- rownames(aa.D.indWA)
+aa.D.ind.distWA<-as.dist(aa.D.indWA, diag=T)
+attr(aa.D.ind.distWA, "Labels")<-rownames(aa.D.indWA)
+
+colnames(aa.D.indCE) <- rownames(aa.D.indCE)
+aa.D.ind.distCE<-as.dist(aa.D.indCE, diag=T)
+attr(aa.D.ind.distCE, "Labels")<-rownames(aa.D.indCE)
+
+colnames(aa.D.indEE) <- rownames(aa.D.indEE)
+aa.D.ind.distEE<-as.dist(aa.D.indEE, diag=T)
+attr(aa.D.ind.distEE, "Labels")<-rownames(aa.D.indEE)
+
+colnames(aa.D.indRO) <- rownames(aa.D.indRO)
+aa.D.ind.distRO<-as.dist(aa.D.indRO, diag=T)
+attr(aa.D.ind.distRO, "Labels")<-rownames(aa.D.indRO)
+
+
+
+coordsCA <- read.delim ("Coords_CA.txt") # coordinates file for M pops
+coordsEA <- read.delim ("Coords_EA.txt") # coordinates file for M pops
+coordsWA <- read.delim ("Coords_WA.txt") # coordinates file for M pops
+coordsCE <- read.delim ("Coords_CE.txt") # coordinates file for M pops
+coordsEE <- read.delim ("Coords_EE.txt") # coordinates file for M pops
+coordsRO <- read.delim ("Coords_RO.txt") # coordinates file for M pops
+
+xy.coords.onlyCA<- subset(coordsCA, select=c("Latitude","Longitude"))
+DgeoCA <- dist(xy.coords.onlyCA)
+
+xy.coords.onlyEA<- subset(coordsEA, select=c("Latitude","Longitude"))
+DgeoEA <- dist(xy.coords.onlyEA)
+
+xy.coords.onlyWA<- subset(coordsWA, select=c("Latitude","Longitude"))
+DgeoWA <- dist(xy.coords.onlyWA)
+
+xy.coords.onlyCE<- subset(coordsCE, select=c("Latitude","Longitude"))
+DgeoCE <- dist(xy.coords.onlyCE)
+
+xy.coords.onlyEE<- subset(coordsEE, select=c("Latitude","Longitude"))
+DgeoEE <- dist(xy.coords.onlyEE)
+
+xy.coords.onlyRO<- subset(coordsRO, select=c("Latitude","Longitude"))
+DgeoRO <- dist(xy.coords.onlyRO)
+
+
+IBDCA <- mantel.randtest(DgeoCA,aa.D.ind.distCA)
+IBDCA
+ 
+
+IBDEA <- mantel.randtest(DgeoEA,aa.D.ind.distEA)
+IBDEA
+
+
+IBDWA <- mantel.randtest(DgeoWA,aa.D.ind.distWA)
+IBDWA
+
+IBDCE <- mantel.randtest(DgeoCE,aa.D.ind.distCE)
+IBDCE
+
+IBDEE <- mantel.randtest(DgeoEE,aa.D.ind.distEE)
+IBDEE
+
+
+IBDRO <- mantel.randtest(DgeoRO,aa.D.ind.distRO)
+IBDRO
+
+#Plot for all
+ 
+par(mfrow = c(2, 3)) # 2-by-3 grid of plots
+par(oma = c(4, 4, 3, 0)) # make room (i.e. the 4's) for the overall x and y axis titles
+par(mar = c(4, 2, 4, 2)) # make the plots be closer together
+plot(DgeoCA,aa.D.ind.distCA,cex=.8, xlab = '', ylab = '', main= "CA", col=rgb(100,100,100,70,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distCA~DgeoCA), col= "blue")
+
+plot(DgeoEA,aa.D.ind.distEA, cex=.8, xlab = '', ylab = '', main= "EA", col=rgb(100,100,100,40,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distEA~DgeoEA), col= "blue") 
+
+plot(DgeoWA,aa.D.ind.distWA, cex=.8, xlab = '', ylab = '', main= "WA", col=rgb(100,100,100,70,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distWA~DgeoWA), col= "blue") 
+
+plot(DgeoCE,aa.D.ind.distCE, cex=.8, xlab = '', ylab = '', main= "CE", col=rgb(100,100,100,40,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distCE~DgeoCE), col= "blue") 
+
+plot(DgeoEE,aa.D.ind.distEE, cex=.8, xlab = '', ylab = '', main= "EE", col=rgb(100,100,100,70,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distEE~DgeoEE), col= "blue") 
+
+plot(DgeoRO,aa.D.ind.distRO, cex=.8, xlab = '', ylab = '', main= "RO", col=rgb(100,100,100,70,maxColorValue=500), pch =1)
+abline(lm(aa.D.ind.distRO~DgeoRO), col= "blue")
+
+mtext('Geographic distance', side = 1, outer = TRUE, line = 2, cex=1.3)
+mtext('Genetic distance', side = 2, outer = TRUE, line = 2, cex=1.3)
+
+###IBD between Europe and Alps population
+
+vcfAlps <- read.vcfR("Ahal_0.15_Only_Alps.vcf")
+vcfEur <- read.vcfR("Ahal_0.15_Only_Europe.vcf")
+
+aa.genlightAlps <- vcfR2genlight(vcfAlps, n.cores=1)
+locNames(aa.genlightAlps) <- paste(vcfAlps@fix[,1],vcfAlps@fix[,2],sep="_")
+pop(aa.genlightAlps)<-substr(indNames(aa.genlightAlps),1,4) 
+
+aa.genlightEur <- vcfR2genlight(vcfEur, n.cores=1)
+locNames(aa.genlightEur) <- paste(vcfEur@fix[,1],vcfEur@fix[,2],sep="_")
+pop(aa.genlightEur)<-substr(indNames(aa.genlightEur),1,4) 
+
+aa.D.indAlps <- stamppNeisD(aa.genlightAlps, pop = FALSE) # Nei's 1972 distance between indivs
+aa.D.indEur <- stamppNeisD(aa.genlightEur, pop = FALSE) # Nei's 1972 distance between indivs
+
+
+colnames(aa.D.indAlps) <- rownames(aa.D.indAlps)
+aa.D.ind.distAlps<-as.dist(aa.D.indAlps, diag=T)
+attr(aa.D.ind.distAlps, "Labels")<-rownames(aa.D.indAlps)
+
+colnames(aa.D.indEur) <- rownames(aa.D.indEur)
+aa.D.ind.distEur<-as.dist(aa.D.indEur, diag=T)
+attr(aa.D.ind.distEur, "Labels")<-rownames(aa.D.indEur)
+
+
+coordsAlps <- read.delim ("Coords_Alps.txt") # coordinates file for M pops
+coordsEur <- read.delim ("Coords_Europe.txt") # coordinates file for NM pops
+
+xy.coords.onlyAlps<- subset(coordsAlps, select=c("Latitude","Longitude"))
+DgeoAlps <- dist(xy.coords.onlyAlps)
+xy.coords.onlyEur<- subset(coordsEur, select=c("Latitude","Longitude"))
+DgeoEur <- dist(xy.coords.onlyEur)
+
+
+IBDAlps <- mantel.randtest(DgeoAlps,aa.D.ind.distAlps)
+IBDAlps
+#plot(DgeoM,aa.D.ind.distAlps, pch=20,cex=.5)
+#abline(lm(aa.D.ind.distAlps~DgeoAlps)) 
+
+IBDEur <- mantel.randtest(DgeoEur,aa.D.ind.distEur)
+IBDEur
+#plot(DgeoEur,aa.D.ind.distEur, pch=20,cex=.5)
+#abline(lm(aa.D.ind.distEur~DgeoEur)) 
+
+
+#With density for plot
+library(MASS)
+densAlps <- kde2d(DgeoAlps,aa.D.ind.distAlps, n=324, lims=c(-1, 25, 0, 0.20))
+densEur <- kde2d(DgeoEur,aa.D.ind.distEur, n=478, lims=c(-1, 25, 0, 0.20))
+
+myPal <- colorRampPalette(c("white", "blue", "gold", "orange", "red"))
+
+dev.off()
+# Merge plot
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoAlps, aa.D.ind.distAlps, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densAlps, col=transp(myPal(324),.7), add=TRUE)
+abline(lm(aa.D.ind.distAlps~DgeoAlps))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoAlps, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distAlps, axes=FALSE)
+mtext("IBD of Alps pairs", side=3, outer=TRUE, line=-3)
+
+par(fig=c(0,0.9,0,0.9), new=FALSE)
+plot(DgeoEur, aa.D.ind.distEur, pch=20,cex=.5, xlab = "Geographic distance", ylab = "Genetic distance")
+image(densEur, col=transp(myPal(478),.7), add=TRUE)
+abline(lm(aa.D.ind.distEur~DgeoEur))
+par(fig=c(0,0.9,0.6,1), new=TRUE)
+boxplot(DgeoEur, horizontal=TRUE, axes=FALSE)
+par(fig=c(0.73,1,0,0.9),new=TRUE)
+boxplot(aa.D.ind.distEur, axes=FALSE)
+mtext("IBD of Europe pairs", side=3, outer=TRUE, line=-3)
+
+
+## Another plot for Alps and Europe
+
+#install.packages("ggpubr")
+#install.packages("ggthemes") # Install 
+library(ggthemes)
+library(grid)
+library(ggpubr)
+library(ggplot2)
+library(reshape2)
+require(cowplot)
+library(hexbin)
+
+#Europe
+df <- melt(as.matrix(DgeoEur), varnames = c("row", "col"))
+df[df$row > df$col,]
+df1 <- melt(as.matrix(aa.D.ind.distEur), varnames = c("row", "col"))
+df1[df1$row > df1$col,]
+df2 <- data.frame(x = df$value , y = df1$value,
+  d = densCols(df$value, df1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LMEUR <- lm(aa.D.ind.distEur~DgeoEur)
+coef.EUR <- coef(LMEUR)
+
+a <- ggplot(df2, aes(df$value, df1$value, col = d)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.EUR[1],slope=coef.EUR[2])
+
+b <- ggplot (df2, aes(x="", y=df$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+
+c <- ggplot (df2, aes("", df1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+Eur <- ggarrange(b, NULL, a, c, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+F1 <- annotate_figure(Eur, top=text_grob("IBD of non-Alps individual pairs", face = "bold", size = 15))
+
+
+# Alps
+dfa <- melt(as.matrix(DgeoAlps), varnames = c("row", "col"))
+dfa[dfa$row > dfa$col,]
+dfa1 <- melt(as.matrix(aa.D.ind.distAlps), varnames = c("row", "col"))
+dfa1[dfa1$row > dfa1$col,]
+dfa2 <- data.frame(x = dfa$value , y = dfa1$value,
+  da = densCols(dfa$value, dfa1$value, colramp = colorRampPalette(rev(rainbow(10, end = 4/6)))))
+
+LMAlps <- lm(aa.D.ind.distAlps~DgeoAlps)
+coef.Alps <- coef(LMAlps)
+
+aa <- ggplot(dfa2, aes(dfa$value, dfa1$value, col = da)) +
+    labs(x= "Geographic disance", y="Genetic disance") +
+    geom_point(size = 0.2) +
+    scale_color_identity() +
+    theme_bw() +
+    geom_abline(intercept=coef.Alps[1],slope=coef.Alps[2])
+
+ba <- ggplot (dfa2, aes(x="", y=dfa$value)) +
+    geom_boxplot() + coord_flip() +
+    clean_theme()
+
+
+ca <- ggplot (dfa2, aes("", dfa1$value)) +
+    geom_boxplot() +
+    clean_theme()
+
+Alps <- ggarrange(ba, NULL, aa, ca, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(5, 1), heights = c(1, 5),
+          common.legend = TRUE)
+
+F2 <- annotate_figure(Alps, top=text_grob("IBD of Alps individual pairs", face = "bold", size = 15))
+```
+
+
+#Stats for each cluster 
+```{r}
+dim(Mydata)
+tail(Mydata)[,12564:12566]
+
+CA <- Mydata[which(Mydata$ColorPCs == "CA"),]
+head(CA)[,1:8]
+dim(CA)
+CE <- Mydata[which(Mydata$ColorPCs == "CE"),]
+EA <- Mydata[which(Mydata$ColorPCs == "EA"),]
+EE <- Mydata[which(Mydata$ColorPCs == "EE"),]
+RO <- Mydata[which(Mydata$ColorPCs == "RO"),]
+WA <- Mydata[which(Mydata$ColorPCs == "WA"),]
+dim(WA)
+
+##CA
+
+ind <- as.character(CA$Sample)
+population <- as.character(CA$Site) # use later with adegenet (population labels)
+soiltype <- CA$Site_ContType
+dim(CA) # xxx individuals x xxxxx SNPs
+
+locus2CA <- CA[, 6:12566]
+dim(locus2CA)
+colnames(locus2CA) <- gsub(".FJ", "|FJ", colnames(locus2CA)) # locus names can't have "."
+colnames(locus2CA) <- gsub(".1_", "_", colnames(locus2CA)) 
+tail(locus2CA)[,12560:12561]
+CA1 <- df2genind(locus2CA, ploidy = 2, ind.names = ind, pop = population, sep = "")
+#names(CA1) 
+
+
+##CE
+ind <- as.character(CE$Sample)
+population <- as.character(CE$Site) # use later with adegenet (population labels)
+dim(CE) # xxx individuals x xxxxx SNPs
+
+locus2CE <- CE[, 6:12566]
+dim(locus2CE)
+colnames(locus2CE) <- gsub(".FJ", "|FJ", colnames(locus2CE)) # locus names can't have "."
+colnames(locus2CE) <- gsub(".1_", "_", colnames(locus2CE)) 
+tail(locus2CE)[,12560:12561]
+CE1 <- df2genind(locus2CE, ploidy = 2, ind.names = ind, pop = population, sep = "")
+
+
+
+
+
+
+
+
+
+##EA
+ind <- as.character(EA$Sample)
+population <- as.character(EA$Site) # use later with adegenet (population labels)
+soiltype <- EA$Site_ContType
+dim(EA) # xxx individuals x xxxxx SNPs
+
+locus2EA <- EA[, 6:12566] 
+colnames(locus2EA) <- gsub("\\.", "_", colnames(locus2EA)) # locus names can't have "."
+
+EA1 <- df2genind(locus2EA, ploidy = 2, ind.names = ind, pop = population, sep = "")
+#names(EA1) 
+
+EA2 <- genind2hierfstat(EA1)
+
+basic.stats(EA1)
+
+boxplot(basic.stats(EA1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(EA1)
+
+##EE
+ind <- as.character(EE$Sample)
+population <- as.character(EE$Site) # use later with adegenet (population labels)
+soiltype <- EE$Site_ContType
+dim(EE) # xxx individuals x xxxxx SNPs
+
+locus2EE <- EE[, 6:12566] 
+colnames(locus2EE) <- gsub("\\.", "_", colnames(locus2EE)) # locus names can't have "."
+
+EE1 <- df2genind(locus2EE, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(EE1) 
+
+EE2 <- genind2hierfstat(EE1)
+
+basic.stats(EE1)
+
+boxplot(basic.stats(EE1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(EE1)
+
+#RO
+ind <- as.character(RO$Sample)
+population <- as.character(RO$Site) # use later with adegenet (population labels)
+soiltype <- RO$Site_ContType
+dim(RO) # xxx individuals x xxxxx SNPs
+
+locus2RO <- RO[, 6:12566] 
+colnames(locus2RO) <- gsub("\\.", "_", colnames(locus2RO)) # locus names can't have "."
+
+RO1 <- df2genind(locus2RO, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(RO1) 
+
+RO2 <- genind2hierfstat(RO1)
+
+basic.stats(RO1)
+
+boxplot(basic.stats(RO1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(RO1)
+
+##WA
+ind <- as.character(WA$Sample)
+population <- as.character(WA$Site) # use later with adegenet (population labels)
+soiltype <- WA$Site_ContType
+dim(WA) # xxx individuals x xxxxx SNPs
+
+locus2WA <- WA[, 6:12566] 
+colnames(locus2WA) <- gsub("\\.", "_", colnames(locus2WA)) # locus names can't have "."
+
+WA1 <- df2genind(locus2WA, ploidy = 2, ind.names = ind, pop = population, sep = "")
+names(WA1) 
+
+WA2 <- genind2hierfstat(WA1)
+
+basic.stats(WA1)
+
+boxplot(basic.stats(WA1)$perloc[,1:3]) # boxplot of Ho, Hs, Ht
+
+wc(WA1)
+
+
+###### Merge each data and plot together with statistical test
+
+WAbs <- basic.stats(WA1)$perloc[,1:10]
+CAbs <- basic.stats(CA1)$perloc[,1:10]
+CEbs <- basic.stats(CE1)$perloc[,1:10]
+EEbs <- basic.stats(EE1)$perloc[,1:10]
+EAbs <- basic.stats(EA1)$perloc[,1:10]
+RObs <- basic.stats(RO1)$perloc[,1:10]
+
+WAbs$Subpop <- "WA" 
+CAbs$Subpop <- "CA" 
+CEbs$Subpop <- "CE" 
+EEbs$Subpop <- "EE" 
+EAbs$Subpop <- "EA" 
+RObs$Subpop <- "RO" 
+
+WAbs$Subpop <- as.factor(WAbs$Subpop)
+CAbs$Subpop <- as.factor(CAbs$Subpop)
+CEbs$Subpop <- as.factor(CEbs$Subpop)
+EEbs$Subpop <- as.factor(EEbs$Subpop)
+EAbs$Subpop <- as.factor(EAbs$Subpop) 
+RObs$Subpop <- as.factor(RObs$Subpop) 
+
+FisALL <- cbind(EAbs$Fis, CAbs$Fis, WAbs$Fis, EEbs$Fis, CEbs$Fis, RObs$Fis)
+colnames(FisALL) <- c("EA", "CA", "WA", "EE", "CE", "RO")
+boxplot(FisALL, col = c(4,6,5,2,3,"gray10"), main = "Fis within subpopulations")
+
+FstALL <- cbind(EAbs$Fst, CAbs$Fst, WAbs$Fst, EEbs$Fst, CEbs$Fst, RObs$Fst)
+colnames(FstALL) <- c("EA", "CA", "WA", "EE", "CE", "RO")
+boxplot(FstALL, col = c(4,6,5,2,3,"gray10"), main = "Fst within subpopulations")
+
+
+Allstat <- rbind(WAbs, CAbs, CEbs, EEbs, EAbs, RObs)
+AllstatwoNA <- na.omit(Allstat)
+AllstatwoNA$Fis
+
+#install.packages("rowr")
+library(rowr)
+
+FisALL <- cbind.fill(M_Neubs$Fis, M_Outbs$Fis, NM_Neubs$Fis, NM_Outbs$Fis, fill = NA )
+colnames(FisALL) <- c("M_Neu", "M_Out", "NM_Neu", "NM_Out" )
+
+
+FstALL <- cbind.fill(M_Neubs$Fst, M_Outbs$Fst, NM_Neubs$Fst, NM_Outbs$Fst, fill = NA )
+colnames(FstALL) <- c("M_Neu", "M_Out", "NM_Neu", "NM_Out" )
+
+
+
+HsALL <- cbind.fill(M_Neubs$Hs, M_Outbs$Hs, NM_Neubs$Hs, NM_Outbs$Hs, fill = NA )
+colnames(HsALL) <- c("M_Neu", "M_Out", "NM_Neu", "NM_Out" )
+
+
+
+#Statistics & violin plot
+FstaticALL <- rbind(M_Neubs, M_Outbs, NM_Neubs, NM_Outbs)
+dim(FstaticALL)
+tail(FstaticALL)
+FstaticALL$soil <- substr(FstaticALL$Type, 0,1)
+FstaticALL$loci <- str_sub(FstaticALL$Type, -3, -1)
+head(FstaticALL)
+
+#install.packages("agricolae")
+library(agricolae)
+library(FSA)
+library(car)
+library(stats)
+library(ggplot2)
+
+FstaticALL_Ho.aov <- aov( Ho ~ Type, data = FstaticALL)
+summary(FstaticALL_Ho.aov)
+FstaticALL_Ho_res <- HSD.test(FstaticALL_Ho.aov, "Type", group=TRUE)
+FstaticALL_Ho_res$groups
+
+leveneTest(Ho ~ Type, data = FstaticALL)
+
+FstaticALL_Ho_post <- dunnTest(Ho ~ Type, data = FstaticALL, method="bh")#Non-parametric KW test
+FstaticALL_Ho_post
+
+Ho_Kru_Ho <- kruskal(FstaticALL$Ho, FstaticALL$Type, p.adj= "BH", alpha = 0.001)
+Ho_Kru_Ho$groups
+#
+FstaticALL_Ht.aov <- aov( Ht ~ Type, data = FstaticALL)
+summary(FstaticALL_Ht.aov)
+FstaticALL_Ht_res <- HSD.test(FstaticALL_Ht.aov, "Type", group=TRUE)
+FstaticALL_Ht_res$groups
+
+leveneTest(Ht ~ Type, data = FstaticALL)
+
+FstaticALL_Ht_post <- dunnTest(Ht ~ Type, data = FstaticALL, metHtd="bh")#Non-parametric KW test
+FstaticALL_Ht_post
+
+Ht_Kru_Ht <- kruskal(FstaticALL$Ht, FstaticALL$Type, p.adj= "BH", alpha = 0.001)
+Ht_Kru_Ht$groups
+
+
+
+```
+
+
+
